@@ -1,2 +1,0 @@
-CREATE TABLE users (email TEXT PRIMARY KEY, wrapped_dek BLOB NOT NULL, dek_iv BLOB NOT NULL, kek_version INTEGER NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE credentials (id TEXT PRIMARY KEY, email TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE, provider_id TEXT NOT NULL, label TEXT NOT NULL, last4 TEXT NOT NULL, ciphertext BLOB NOT NULL, iv BLOB NOT NULL, is_default INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
