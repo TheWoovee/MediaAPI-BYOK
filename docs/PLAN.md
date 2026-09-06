@@ -1,6 +1,6 @@
 # MediaAPI-BYOK — Architecture and Implementation Plan (v2)
 
-Status: v2, 2026-09-06. Supersedes v1. Built on the decisions below and on the provider research in
+Status: v2.1, 2026-09-06. Supersedes v1. Feasibility of the risky parts has been verified by a running spike, see `docs/feasibility.md`; account-side setup steps are in `docs/setup-cloudflare.md`. Built on the decisions below and on the provider research in
 `docs/providers/*.md` and `docs/cloudflare-platform.md` (each file lists its sources and marks anything
 unverified). Nothing is implemented yet; Phase 0 starts on approval of this document.
 
@@ -10,17 +10,17 @@ unverified). Nothing is implemented yet; Phase 0 starts on approval of this docu
 
 | Topic | Decision |
 |-------|----------|
-| Mount point | `https://www.thewoovee.com/studio` (Worker route on the existing `www` host; the rest of `www` keeps serving whatever it serves today). |
+| Mount point | `https://www.thewoovee.com/studio` (Worker route on the existing `www` host, which is a **Cloudflare Pages project deployed from GitHub**; Pages keeps serving every other path and is not modified). |
 | DNS | Zone `thewoovee.com` is already on Cloudflare; registration stays at Hostinger. No DNS move needed. |
-| Audience | Closed group: you plus invited emails. Login is Cloudflare Access (email one-time PIN, optional Google). No passwords, no signup UI. |
+| Audience | Closed group: you plus invited emails. Login is Cloudflare Access with **email one-time PIN from day one and Google login added** (10-minute OAuth client setup, see `docs/setup-cloudflare.md`). No passwords, no signup UI. |
 | Keys | Stored **server-side, encrypted** (D1 + envelope encryption with a master key held only as a Worker secret). Users log in and see and manage only their own keys. |
-| Providers | Selectable per user. The registry ships with every provider researched (22 cloud + 4 local); a user enables the ones they have keys for and the model picker shows only those. |
+| Providers | Selectable per user. The registry ships with every provider researched (23 cloud + 4 local); a user enables the ones they have keys for and the model picker shows only those. **First to be smoke-tested with real keys: xAI, Hugging Face, RunPod, plus Cloudflare Workers AI which is free inside the same account.** |
 | Local stack | ComfyUI first (covers images and video), A1111/Forge second. SwarmUI optional in a later wave; InvokeAI skipped (graph API churns too much). |
 | Outputs | Download only. Media is never stored on the server; job metadata (prompt, params, provider job id) is stored per user so history follows you across devices. |
 | Video via | fal.ai and BytePlus ModelArk direct for Seedance, plus Venice, xAI, Kling, MiniMax, Runway, Luma, Google Veo, Replicate, WaveSpeed. |
 | PWA | Yes; it is cheap and makes phone use pleasant. |
 
-Still to confirm (does not block Phase 0): **what serves `www.thewoovee.com` today** (Cloudflare Pages, an external host behind proxied DNS, or a Hostinger builder). The sandbox could not reach the site. The routing step in Phase 0 handles both cases and has a fallback.
+Confirmed: `www` is Cloudflare Pages linked to GitHub, Hostinger holds only the domain registration. The one remaining account-side unknown is whether a Worker route intercepts `/studio` on a Pages custom domain; Cloudflare's routing doc says routes take precedence on a shared hostname, and Phase 0 starts with a probe route with `studio.thewoovee.com` as the fallback.
 
 ---
 
@@ -131,6 +131,7 @@ interface ModelSpec { id: string; label: string; capabilities: Capability[]; par
 | `xai` | proxy | grok-imagine-image-2.0 | edits (≤5 source images, no mask) | grok-imagine-video-1.5: t2v, i2v, audio, edit, extend; 1–15 s, up to 1080p | images sync; video async (`GET /v1/videos/{id}`) | video URLs expire 1–24 h; rate limits unpublished | 1 |
 | `fal` | proxy (direct possible after preflight test) | Flux 1/2, Seedream 4/5, Nano Banana, Ideogram, Recraft, Qwen | Kontext, fill, upscalers | Seedance 1.x/2.x, Kling 2.x/3, Veo 3.1, Wan, LTX, Hailuo, Grok Imagine | queue API with returned status/result URLs | `Authorization: Key id:secret`; use returned URLs (paths are rewritten); live catalogue API | 1 |
 | `google` | **direct** (CORS verified) | gemini-3.1-flash-image, gemini-3-pro-image-preview | multi-image edit via generateContent, no mask | Veo 3.1 / fast / lite: t2v, i2v, first+last frame, refs, extend | images sync; Veo long-running operation polling | download of video needs the API key header; retained 2 days | 1 |
+| `cf-workers-ai` | Worker binding (owner) or proxy (REST with a Cloudflare API token) | flux-1-schnell, flux-2-klein-4b/9b, flux-2-dev, Leonardo lucid-origin and phoenix-1.0, SDXL | flux-2 models accept input images; SD 1.5 img2img and inpainting | – | sync, base64 JSON output | **10,000 neurons/day free** (roughly 100+ schnell images); no key needed for you, others use a Cloudflare API token | 1 |
 | `openai` | proxy | gpt-image-2 (arbitrary WxH), 1.5, 1, mini | `/images/edits` with mask, ≤16 images, input_fidelity | none (Sora shut down 2026-09-24) | sync, base64 output | always send `model`; per-token pricing | 1 |
 | `hf-inference` | proxy | via router: hf-inference (CPU-class), fal-ai, replicate, together, nscale, wavespeed | image-to-image where provider supports | text-to-video via fal-ai/replicate/etc. | provider-dependent; fal via router is a queue | model must be the provider's `providerId` from the Hub mapping; free credit $0.10/month | 2 |
 | `hf-space` | **direct** (per-IP ZeroGPU quota) | any Gradio Space | any | any | `/gradio_api/call` + SSE events | introspect `/gradio_api/info`; map params by name; cold starts; PAUSED spaces cannot be woken | 2 |
@@ -155,7 +156,7 @@ interface ModelSpec { id: string; label: string; capabilities: Capability[]; par
 | `a1111` | direct or relay | txt2img | img2img, inpaint, extras upscale | – | sync + `/progress` | needs `--api --cors-allow-origins`; base64 in and out | 2 |
 | `swarmui` | relay/direct | yes | yes | yes | session API, sync generate, no documented CORS | optional in wave 3; InvokeAI skipped (graph API churn) | 3 |
 
-Wave 1 gives image generation and editing on four cloud providers plus ComfyUI, and video on xAI, fal, Google and Replicate. That already covers Seedance (via fal and Replicate), Kling, Veo, Wan and Grok Imagine.
+Wave 1 gives image generation and editing on five cloud providers plus ComfyUI, and video on xAI, fal, Google and Replicate. Cloudflare Workers AI is the zero-cost smoke-test target because it needs no external account. That already covers Seedance (via fal and Replicate), Kling, Veo, Wan and Grok Imagine.
 
 ### 3.7 Local servers
 Two access modes, chosen per saved server:
@@ -269,10 +270,10 @@ MediaAPI-BYOK/
 ## 5. Phases
 
 ### Phase 0 — Skeleton, routing, login (2–3 days)
-1. Scaffold Vite + React + Worker with `@cloudflare/vite-plugin`; verify `base: '/studio/'` works with the plugin (flagged unverified in research). Fallback: Worker strips the prefix before `env.ASSETS.fetch`.
+1. Promote `spike/` to the real skeleton: Vite + React + Worker with `@cloudflare/vite-plugin`, `base: '/studio/'`, post-build move of the client bundle under `dist/client/studio/`, SPA fallback that fetches `/studio/` from the asset binding (all verified in `docs/feasibility.md`).
 2. Hono app with `/studio/api/health` and SPA fallback to `/studio/index.html`.
-3. **Routing probe**: deploy with route `www.thewoovee.com/studio-probe*` first. If `www` is a Pages custom domain and the route does not intercept, switch to `studio.thewoovee.com` as a Worker custom domain and link it from the main site. Then move to `/studio` + `/studio/*`.
-4. Access application on `www.thewoovee.com/studio` (OTP, your email), Bypass apps on `/studio/api/health` and `/studio/api/tmp`. Worker JWT verification wired; `/me` returns your email.
+3. **Routing probe**: deploy with routes `www.thewoovee.com/__studio-probe` and `/__studio-probe/*` first. If the route intercepts in front of Pages, switch to `/studio` + `/studio/*`; if not, use `studio.thewoovee.com` as a Worker custom domain and link it from the main site.
+4. Access application on `www.thewoovee.com/studio` (one-time PIN and Google, your email), Bypass apps on `/studio/api/health` and `/studio/api/tmp`; steps in `docs/setup-cloudflare.md`, optionally scripted. Worker JWT verification wired (unit-tested in the spike); `/me` returns your email.
 5. GitHub Actions: CI (lint, typecheck, vitest) on PRs; deploy on `main`; preview `versions upload` on PRs.
 6. D1 database created, migrations applied in CI, `KEK` secret set.
 **Exit:** email OTP login, app shell at `/studio`, `/me` shows your email, PR previews work.
@@ -280,7 +281,7 @@ MediaAPI-BYOK/
 ### Phase 1 — Keys, proxy, first generations (1 week)
 1. Credentials UI and API with envelope encryption; masked list, reveal, default per provider.
 2. Proxy with per-provider allowlists, header injection, streaming, `QUERY` support; `/fetch` for outputs.
-3. Adapters: `openai-compat` (with xAI and OpenAI presets), `xai` (image + video), `fal` (queue, storage upload, live catalogue), `google` (direct; image + Veo 3.1), `replicate`, `comfyui` (localhost; workflow templates for txt2img, img2img, Wan i2v).
+3. Adapters, in smoke-test order: `cf-workers-ai` (free, same account), `xai` (image + video, your key), `hf-inference` and `hf-space` (your free token), `runpod` (public endpoints, your key), then `openai-compat` (xAI/OpenAI presets), `fal`, `google`, `replicate`, `comfyui` (localhost; workflow templates for txt2img, img2img, Wan i2v).
 4. Generate screen (image and video tabs) with schema-driven forms; job runner with persistence and download; History screen from `/jobs`.
 5. PWA manifest and service worker.
 **Exit:** generate images and videos from phone and PC on five cloud providers and on local ComfyUI; reload mid-job and see it finish; keys visible only after login.
@@ -288,7 +289,7 @@ MediaAPI-BYOK/
 ### Phase 2 — Editing, more providers, tunnel (2 weeks)
 1. Edit screen: upload, mask painting, inpaint / img2img / upscale / remove-bg across OpenAI, xAI, fal, Stability, BFL, Google.
 2. Temp uploads on R2 with TTL cron, for URL-only providers.
-3. Adapters: `byteplus-ark` (Seedream + Seedance with both parameter styles), `venice`, `kling` (Worker-minted JWT), `stability`, `bfl`, `hf-inference`, `hf-space` (introspection + presets), `runpod` (public endpoints + worker-comfyui), `a1111`.
+3. Adapters: `byteplus-ark` (Seedream + Seedance with both parameter styles), `venice`, `kling` (Worker-minted JWT), `stability`, `bfl`, `runpod` serverless workers (worker-comfyui presets), `a1111`.
 4. Local access guide and UI: tunnel setup wizard, relay mode with stored service tokens, health badges, Chrome permission-prompt and Safari messaging; `docs/local-servers.md`.
 5. Job cancel where supported; cost hints per model from research tables.
 **Exit:** edit images with masks; Seedance via BytePlus directly; ComfyUI reachable from the phone through the tunnel; Gradio Spaces usable by URL.
@@ -362,7 +363,7 @@ If usage ever exceeds free, Workers Paid is $5/month and lifts every limit above
 | Risk | Mitigation |
 |------|-----------|
 | Worker route does not intercept `/studio` on an existing Pages custom domain (undocumented case). | Phase 0 probe; fallback to `studio.thewoovee.com` with a link from the main site. |
-| `@cloudflare/vite-plugin` `base` support (unverified). | Test in the first hour of Phase 0; fallback is prefix stripping in the Worker. |
+| `@cloudflare/vite-plugin` with `base: '/studio/'`. | **Verified in the spike** (build, asset serving, SPA fallback, D1, WebCrypto, Access gate). |
 | Provider APIs churn (they did between v1 and v2 of this plan). | Adapters are data-driven; live catalogues where offered; each spec doc has a "last verified" date; contract tests on fixtures. |
 | Fast-expiring output URLs (BFL 10 min). | Download immediately on success, before notifying the UI. |
 | Providers that need public input URLs. | Temp uploads on R2 with unguessable ids and 1 h TTL; own-upload APIs preferred where they exist. |
@@ -376,7 +377,6 @@ If usage ever exceeds free, Workers Paid is $5/month and lifts every limit above
 
 ## 8. Open items for you
 
-1. What serves `www.thewoovee.com` today (Pages, external origin, Hostinger builder)?
-2. Do you want Google login in addition to email one-time PIN?
-3. Which providers do you personally hold keys for right now? Those get smoke-tested first.
-4. Approve this plan to start Phase 0.
+1. Approve this plan to start Phase 0 (skeleton promoted from the spike, CI/CD, probe route, Access, D1).
+2. Do the account-side steps in `docs/setup-cloudflare.md` sections 1–3 and 5–6 when convenient (about 30 minutes); section 4 can be scripted once the API token exists.
+3. Optional later: a BytePlus ModelArk account for Seedance direct, a fal.ai account for the widest video coverage. Both are pay-as-you-go; nothing in Phase 0 or 1 needs them.

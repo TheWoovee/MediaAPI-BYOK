@@ -9,6 +9,7 @@ Cross-provider conclusions are summarised in `../PLAN.md` section 2 and the matr
 | `xai.md` | xAI Grok Imagine (image 2.0, video 1.5) | 1 | proxy |
 | `fal.md` | fal.ai queue API and model catalogue | 1 | proxy (direct candidate) |
 | `google.md` | Gemini API: native image models, Veo 3.1 | 1 | direct (CORS verified) |
+| `cloudflare-workers-ai.md` | Cloudflare Workers AI: Flux, Leonardo, SDXL (free 10k neurons/day) | 1 | binding / proxy |
 | `openai.md` | OpenAI Images (gpt-image-2 and older); Sora deprecated | 1 | proxy |
 | `replicate.md` | Replicate predictions, files, search | 1 | proxy |
 | `comfyui.md` | ComfyUI HTTP API and CORS flags | 1 | direct |
