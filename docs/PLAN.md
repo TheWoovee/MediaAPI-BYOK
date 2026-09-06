@@ -15,7 +15,7 @@ unverified). Nothing is implemented yet; Phase 0 starts on approval of this docu
 | Audience | Closed group: you plus invited emails. Login is Cloudflare Access (email one-time PIN, optional Google). No passwords, no signup UI. |
 | Keys | Stored **server-side, encrypted** (D1 + envelope encryption with a master key held only as a Worker secret). Users log in and see and manage only their own keys. |
 | Providers | Selectable per user. The registry ships with every provider researched (22 cloud + 4 local); a user enables the ones they have keys for and the model picker shows only those. |
-| Local stack | ComfyUI first (covers images and video), A1111/Forge second. SwarmUI and InvokeAI in a later wave. |
+| Local stack | ComfyUI first (covers images and video), A1111/Forge second. SwarmUI optional in a later wave; InvokeAI skipped (graph API churns too much). |
 | Outputs | Download only. Media is never stored on the server; job metadata (prompt, params, provider job id) is stored per user so history follows you across devices. |
 | Video via | fal.ai and BytePlus ModelArk direct for Seedance, plus Venice, xAI, Kling, MiniMax, Runway, Luma, Google Veo, Replicate, WaveSpeed. |
 | PWA | Yes; it is cheap and makes phone use pleasant. |
@@ -36,6 +36,9 @@ The provider landscape moved a lot since the v1 draft. Facts that changed the de
 - **Output URLs expire fast**: BFL 10 minutes, Replicate 1 hour, xAI 1 to 24 hours, BytePlus about 24 hours. The job runner downloads the moment a job succeeds.
 - **Many endpoints return raw bytes or multipart, not JSON**: Stability (multipart in, bytes out), Venice edit/upscale (bytes), Fireworks (bytes), Ideogram (multipart). The proxy must stream bodies untouched in both directions.
 - **Some providers have non-standard verbs or auth**: Replicate's model search uses the `QUERY` verb; fal's header is `Authorization: Key id:secret`; Kling needs an HS256 JWT minted from an access key and secret; Runway requires an `X-Runway-Version` header.
+- **ComfyUI's CORS is single-origin and only allows the `Content-Type` and `Authorization` request headers**, and Cloudflare Access answers browser preflights with 403 unless the app is configured for it. Sending Access service-token headers from the browser to a tunnelled ComfyUI therefore fails. Tunnel-hosted servers are relayed through the Worker instead, which also keeps service tokens off the browser entirely.
+- **Chrome 142+ shows a Local Network Access permission prompt** when a public HTTPS page calls `http://localhost`; Firefox allows it silently; **Safari still blocks it**. Same-PC mode explains the prompt and Safari users use the tunnel.
+- **Cloudflare's proxy read timeout is 125 s** for any single response through a tunnel. ComfyUI is async (submit then poll) so it is unaffected; A1111's synchronous `txt2img` is, so long A1111 jobs are for `localhost` only.
 - **Cloudflare specifics**: a path-scoped Access app on `www.thewoovee.com/studio` is supported; Worker routes on `www.thewoovee.com/studio*` are valid and most-specific wins; static asset requests are free and unlimited; D1 free tier (5M reads, 100k writes per day) is the right store for keys; the SPA fallback for assets always serves the root `index.html`, so the Worker serves `/studio/index.html` itself.
 
 ---
@@ -76,13 +79,14 @@ The provider landscape moved a lot since the v1 draft. Facts that changed the de
 - A D1 dump alone is useless without the KEK; the KEK alone is useless without D1.
 - **Reveal**: the owner can click "show" on their own credential; the Worker decrypts and returns it once. Other users only ever see label and last four characters. Reveal events are counted per user (visible in settings) as a light audit trail.
 - **Inline keys**: "try without saving" sends `X-Credential-Inline` for that request only. Never persisted.
-- **Secrets that must live in the browser**: Kling's JWT is minted client-side with WebCrypto from the stored access key and secret (fetched decrypted once per session over the Access-protected connection) so only the 30-minute JWT crosses the wire; tunnel service tokens are likewise fetched once per session because the browser talks to tunnel hosts directly.
+- **No secret ever needs to reach the browser.** Kling's HS256 JWT is minted by the Worker at proxy time from the stored access key and secret. Tunnel service tokens are injected by the Worker on the local-server relay. The only credentials the browser handles are the ones the user is typing in, and the Google API key for the direct Google transport, which the user can opt to route through the proxy instead.
 
 ### 3.3 Request flow
 1. Browser → `POST /studio/api/proxy/fal/queue/fal-ai/...` with `X-Credential: <id>` (omit to use the user's default for that provider).
 2. Worker: verify JWT → load credential → unwrap DEK → decrypt key → inject the provider's auth header (`Authorization: Bearer`, `Authorization: Key`, `x-key`, `Api-Key`, `x-goog-api-key`, ...) plus any fixed headers the provider needs (`X-Runway-Version`) → stream the request to the allowlisted host → stream the response back. `Cache-Control: no-store`. Nothing is buffered or logged beyond status code and byte counts.
 3. Browser polls the provider's status endpoint the same way until done, then downloads outputs via `/studio/api/fetch?url=` (allowlisted output hosts; direct where CORS allows) and offers them for download. Job metadata is written to `/studio/api/jobs` at each state change.
-4. Direct-transport providers (Google, HF Spaces, local, tunnel) skip step 2; the browser injects the header itself from the per-session decrypted copy.
+4. Direct-transport providers (Google, HF Spaces, same-PC local servers) skip step 2; the browser adds the header itself. Google's key is fetched decrypted once per session for this purpose only if the user enables direct mode; the default routes Google through the proxy like everyone else.
+5. Tunnel-hosted local servers go through `/studio/api/local/:serverId/*`: the Worker looks up the server, injects `CF-Access-Client-Id/Secret`, and streams to the user's `https://` base URL. ComfyUI sees a plain server-to-server request with no `Origin` header, so no CORS setup is needed on the tunnel path at all.
 
 ### 3.4 Temporary uploads (for URL-only providers)
 - `POST /studio/api/uploads` (Access-protected) stores the file in R2 under a 256-bit random id and returns `https://www.thewoovee.com/studio/api/tmp/<id>`.
@@ -134,7 +138,7 @@ interface ModelSpec { id: string; label: string; capabilities: Capability[]; par
 | `runpod` | proxy | Public Endpoints (flux-dev, schnell, kontext) and your own serverless endpoints (worker-comfyui) | via ComfyUI workflows | WAN 2.2 public endpoint, ComfyUI video workflows | `/run` + `/status/{id}` | 10 MB payload on `/run`, 20 MB on `/runsync` (counts outputs) → S3 output for video; idle endpoints scale to 0 after 7 days | 2 |
 | `byteplus-ark` | proxy | Seedream 4.0/4.5/5.0 | Seedream image-to-image, sequential sets | Seedance 1.0/1.5 pro, 2.0/2.5; first/last frame, refs, audio | video tasks with `GET /tasks/{id}` | Seedance 1.x params are appended to the prompt text, 2.x are JSON fields; send `watermark:false`; models may need console activation | 2 |
 | `venice` | proxy | many models incl. Flux 2, Nano Banana, GPT-image, Seedream | edit, multi-edit, upscale (raw bytes) | async queue (`/video/queue`, poll via POST `/video/retrieve`) | mixed JSON / bytes | no free tier; `safe_mode` and watermark default on; `/models` exposes constraints | 2 |
-| `kling` | proxy (JWT minted in browser) | kling image models | expand, omni-image, try-on | t2v, i2v, multi-image, extend, lip-sync, effects; v2.1–v3 | poll create path + task id; status `succeed` | HS256 JWT auth; Kling 3.0 Turbo has a different schema; base64 without `data:` prefix | 2 |
+| `kling` | proxy (JWT minted by the Worker) | kling image models | expand, omni-image, try-on | t2v, i2v, multi-image, extend, lip-sync, effects; v2.1–v3 | poll create path + task id; status `succeed` | HS256 JWT auth; Kling 3.0 Turbo has a different schema; base64 without `data:` prefix | 2 |
 | `minimax` | proxy | image-01 | – | Hailuo 2.3 / 02, Director, S2V; v2 API for H3 | task id → query → file retrieve | keys are host-bound (global vs mainland); `base_resp.status_code` must be 0 | 3 |
 | `runway` | proxy | gen4_image(_turbo) with reference tags | – | gen4.5 t2v, gen4_turbo i2v, aleph2 v2v, character performance, upscales; also hosts Veo, Hailuo, Seedance, Wan | `GET /v1/tasks/{id}`; `DELETE` cancels | `X-Runway-Version: 2024-11-06` required; data URI ≤5 MB else URL or `/v1/uploads` | 3 |
 | `luma` | proxy | photon-1, photon-flash-1 with image/style/character refs | modify_image_ref, reframe | ray-2, ray-flash-2: keyframes, loop, extend, modify, upscale, audio | `GET /generations/{id}` | **inputs must be public URLs** → temp uploads | 3 |
@@ -147,18 +151,28 @@ interface ModelSpec { id: string; label: string; capabilities: Capability[]; par
 | `together` | proxy | FLUX incl. free schnell | Kontext | `/v2/videos`: Sora 2, Veo, Seedance 2.5, Wan | sync images; video poll | `response_format: base64` not `b64_json` | 3 |
 | `fireworks` | proxy | flux dev/schnell (bytes), Kontext async | Kontext | – | sync bytes / `get_result` | per-step pricing | 3 |
 | `openai-compat` | proxy or direct | any `/v1/images/generations` server | `/v1/images/edits` | – | sync | covers LocalAI, gateways, RunPod vllm-omni | 2 |
-| `comfyui` | **direct** | any workflow | any workflow | Wan, LTX, Hunyuan workflows | `POST /prompt` → poll `/history/{id}` | needs `--enable-cors-header`; upload via `/upload/image`; outputs via `/view` | 1 |
-| `a1111` | **direct** | txt2img | img2img, inpaint, extras upscale | – | sync + `/progress` | needs `--api --cors-allow-origins`; base64 in and out | 2 |
-| `swarmui`, `invokeai` | direct | yes | yes | yes | session / queue APIs | assess after wave 2 | 3 |
+| `comfyui` | direct (localhost) or relay (tunnel) | any workflow | any workflow | Wan, LTX, Hunyuan workflows | `POST /prompt` → poll `/history/{id}` | localhost needs `--enable-cors-header <origin>` (single origin); relay needs nothing; upload via `/upload/image`; outputs via `/view` | 1 |
+| `a1111` | direct or relay | txt2img | img2img, inpaint, extras upscale | – | sync + `/progress` | needs `--api --cors-allow-origins`; base64 in and out | 2 |
+| `swarmui` | relay/direct | yes | yes | yes | session API, sync generate, no documented CORS | optional in wave 3; InvokeAI skipped (graph API churn) | 3 |
 
 Wave 1 gives image generation and editing on four cloud providers plus ComfyUI, and video on xAI, fal, Google and Replicate. That already covers Seedance (via fal and Replicate), Kling, Veo, Wan and Grok Imagine.
 
 ### 3.7 Local servers
-- **Same PC**: the SPA calls `http://localhost:8188` / `http://127.0.0.1:7860` directly. Chrome and Firefox exempt loopback from mixed-content blocking; Safari is the exception and gets a warning in the UI. LAN IPs (`192.168.x.x`) are not supported directly; use the tunnel.
-- **From anywhere**: a named Cloudflare Tunnel on the PC maps `comfy.thewoovee.com → http://localhost:8188` and `sd.thewoovee.com → http://localhost:7860`, runs as a Windows service, and sits behind an Access application with an Allow-by-email policy plus a **service token**. The app stores the tunnel URL and service token (encrypted) and sends `CF-Access-Client-Id/Secret` headers.
-- ComfyUI launch flags: `--listen 127.0.0.1 --enable-cors-header https://www.thewoovee.com`. A1111/Forge: `--api --listen --cors-allow-origins=https://www.thewoovee.com`.
+Two access modes, chosen per saved server:
+
+**Same PC (direct, `http://localhost`)**
+- The SPA calls `http://localhost:8188` (ComfyUI) or `http://127.0.0.1:7860` (A1111) directly. Chrome, Edge and Firefox allow loopback from an HTTPS page; Chrome 142+ asks once with a Local Network Access permission prompt, which the UI explains. **Safari blocks it**; Safari users get a message pointing to the tunnel mode.
+- ComfyUI must run with `--enable-cors-header https://www.thewoovee.com` (exactly one origin; it answers OPTIONS itself and allows only `Content-Type` and `Authorization` headers, which is all the direct mode sends). A1111/Forge: `--api --cors-allow-origins=https://www.thewoovee.com` (lists and regex supported). The Local Servers screen shows the exact command line for each server kind.
+- LAN addresses (`192.168.x.x`) are blocked by browsers everywhere; not supported.
+
+**From anywhere (relay through the Worker)**
+- On the PC a named Cloudflare Tunnel maps `comfy.thewoovee.com → http://localhost:8188` (and `sd.thewoovee.com → :7860`), runs as a Windows service, and sits behind an Access application with a **Service Auth** policy for a service token. ComfyUI binds to `127.0.0.1` only; the internet sees only Cloudflare.
+- The browser never talks to the tunnel host. It calls `/studio/api/local/:serverId/*`; the Worker injects the service token and streams the request. No CORS flags are needed for this mode, Safari works, and the service token stays server-side. The relay only forwards to `https://` base URLs saved by that user.
+- Because tunnel hostnames must live in the zone owner's Cloudflare account, invited users who want their own PC reachable enter any `https://` base URL of their own: their own domain and tunnel, a quick tunnel (`*.trycloudflare.com`, no auth), or a Tailscale Funnel (`*.ts.net`, no built-in auth). The relay accepts them; the guide recommends adding a ComfyUI login or keeping the exposure short-lived.
+- Cloudflare's 125 s proxy timeout applies per response. ComfyUI is submit-then-poll and unaffected. A1111's synchronous generate is affected, so the UI warns when a remote A1111 job is likely to exceed two minutes.
 - Health pings every 15 s drive an online/offline badge; jobs targeting an offline server stay queued locally until it is back.
-- Exact flag semantics, Access CORS settings for preflight, and the Chrome local-network permission model are documented in `docs/providers/local-access.md`.
+- ComfyUI outputs are read from `GET /history/{prompt_id}` (`images[]`, with `animated: [true]` for core `SaveVideo`, and `gifs[]` for VHS `VideoCombine`) and fetched through `/view`. Polling is preferred over the WebSocket for a browser app.
+- Full flag semantics, Access CORS settings, browser rules with versions, and the tunnel and Tailscale setup steps are in `docs/providers/local-access.md`, `comfyui.md` and `a1111-forge.md`.
 
 ### 3.8 Data model (D1)
 
@@ -176,9 +190,10 @@ CREATE TABLE credentials (
 CREATE INDEX credentials_by_user ON credentials(email, provider_id);
 CREATE TABLE local_servers (
   id TEXT PRIMARY KEY, email TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE,
-  kind TEXT NOT NULL,                -- comfyui | a1111 | openai-compat | swarmui | invokeai
+  kind TEXT NOT NULL,                -- comfyui | a1111 | openai-compat | swarmui
   label TEXT NOT NULL, base_url TEXT NOT NULL,
-  auth_ciphertext BLOB, auth_iv BLOB, -- service token / basic auth / api key, encrypted with the user's DEK
+  mode TEXT NOT NULL,                -- direct (localhost) | relay (https via Worker)
+  auth_ciphertext BLOB, auth_iv BLOB, -- service token / basic auth / api key, encrypted with the user's DEK; used by the relay only
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE user_settings (email TEXT PRIMARY KEY REFERENCES users(email) ON DELETE CASCADE, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
@@ -204,6 +219,7 @@ CREATE TABLE temp_uploads (id TEXT PRIMARY KEY, email TEXT NOT NULL, r2_key TEXT
 | POST | `/credentials/:id/reveal` | JWT | plaintext once; counted |
 | GET, POST, PATCH, DELETE | `/local-servers[/:id]` | JWT | manage local/tunnel servers; GET returns decrypted auth to the owner |
 | ANY | `/proxy/:provider/*` | JWT | authenticated pass-through to allowlisted hosts; forwards method (incl. `QUERY`), streamed body, allowlisted headers |
+| ANY | `/local/:serverId/*` | JWT | relay to one of the user's saved `https://` local servers, injecting its stored auth (Access service token, basic auth or API key) |
 | GET | `/fetch?url=` | JWT | stream an output file from an allowlisted output host |
 | POST | `/uploads` | JWT | temp upload → R2, returns `/tmp/:id` URL |
 | GET | `/tmp/:id` | bypass | serve temp upload to providers; unguessable id; 1 h TTL |
@@ -215,7 +231,7 @@ Proxy header allowlist (request): `content-type`, `accept`, `prefer`, `x-runway-
 - Access in front of everything; JWT verified in the Worker; API unreachable without both.
 - Keys encrypted at rest with per-user DEKs under a KEK that lives only in Worker secrets. Reveal is owner-only and counted.
 - Strict host allowlist on the proxy; no arbitrary URL fetch. `/fetch` and `/tmp` have their own allowlists and TTLs.
-- CSP: `connect-src 'self' https://generativelanguage.googleapis.com https://*.hf.space http://localhost:* http://127.0.0.1:*` plus the user's configured tunnel hosts injected at runtime from settings; `default-src 'self'`; no third-party scripts except `@gradio/client` from jsdelivr if used.
+- CSP: `connect-src 'self' https://generativelanguage.googleapis.com https://*.hf.space http://localhost:* http://127.0.0.1:*` (tunnel hosts are never contacted by the browser, so the CSP is static); `default-src 'self'`; no third-party scripts except `@gradio/client` from jsdelivr if used.
 - `Cache-Control: no-store` on all API responses; no logging of headers or bodies; Workers observability logs status and latency only.
 - Dependency audit in CI; Dependabot on.
 
@@ -272,13 +288,13 @@ MediaAPI-BYOK/
 ### Phase 2 — Editing, more providers, tunnel (2 weeks)
 1. Edit screen: upload, mask painting, inpaint / img2img / upscale / remove-bg across OpenAI, xAI, fal, Stability, BFL, Google.
 2. Temp uploads on R2 with TTL cron, for URL-only providers.
-3. Adapters: `byteplus-ark` (Seedream + Seedance with both parameter styles), `venice`, `kling` (browser-minted JWT), `stability`, `bfl`, `hf-inference`, `hf-space` (introspection + presets), `runpod` (public endpoints + worker-comfyui), `a1111`.
-4. Local access guide and UI: tunnel setup wizard, service token storage, health badges; `docs/local-servers.md`.
+3. Adapters: `byteplus-ark` (Seedream + Seedance with both parameter styles), `venice`, `kling` (Worker-minted JWT), `stability`, `bfl`, `hf-inference`, `hf-space` (introspection + presets), `runpod` (public endpoints + worker-comfyui), `a1111`.
+4. Local access guide and UI: tunnel setup wizard, relay mode with stored service tokens, health badges, Chrome permission-prompt and Safari messaging; `docs/local-servers.md`.
 5. Job cancel where supported; cost hints per model from research tables.
 **Exit:** edit images with masks; Seedance via BytePlus directly; ComfyUI reachable from the phone through the tunnel; Gradio Spaces usable by URL.
 
 ### Phase 3 — Long tail and polish (ongoing)
-1. Adapters: `minimax`, `runway`, `luma`, `ideogram`, `recraft`, `leonardo`, `wavespeed`, `together`, `fireworks`, `swarmui`, `invokeai`.
+1. Adapters: `minimax`, `runway`, `luma`, `ideogram`, `recraft`, `leonardo`, `wavespeed`, `together`, `fireworks`, `swarmui` (optional).
 2. Prompt library, presets, batch runs, side-by-side compare, per-provider spend estimate.
 3. KEK rotation runbook; export of job history; optional public mode design (Turnstile + rate limits) if ever wanted.
 
@@ -351,7 +367,8 @@ If usage ever exceeds free, Workers Paid is $5/month and lifts every limit above
 | Fast-expiring output URLs (BFL 10 min). | Download immediately on success, before notifying the UI. |
 | Providers that need public input URLs. | Temp uploads on R2 with unguessable ids and 1 h TTL; own-upload APIs preferred where they exist. |
 | Loss of the KEK. | Keep it in a password manager; document rotation; the app shows a warning if `kek_version` is unknown. |
-| Safari blocks loopback calls from HTTPS. | UI warning; use the tunnel hostname even on the same machine, or Chrome/Firefox. |
+| Safari blocks loopback calls from HTTPS; Chrome 142+ prompts for local network access. | Relay mode works in every browser; UI explains the Chrome prompt and points Safari users to relay mode. |
+| A1111 synchronous calls exceed Cloudflare's 125 s proxy timeout through a tunnel. | Warn in the UI; recommend ComfyUI (async) for long or video jobs remotely; A1111 long jobs on localhost only. |
 | Subrequest timeout on very slow sync providers (undocumented, roughly 100 s). | Prefer async modes everywhere they exist; sync-only endpoints (Stability, Ideogram, Recraft) return well under that. |
 | ZeroGPU quotas on Spaces. | Direct browser calls with the user's HF token; fallback provider suggestion on quota errors. |
 
