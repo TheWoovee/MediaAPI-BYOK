@@ -13,6 +13,13 @@ import { onHotkey, isMac } from '../../lib/keyboard';
 
 const VIDEO_CAPABILITIES: Capability[] = ['text2video', 'image2video', 'video2video', 'video_extend'];
 
+const VIDEO_CAPABILITY_LABELS: Record<string, string> = {
+  text2video: 'Text to Video',
+  image2video: 'Image to Video',
+  video2video: 'Video to Video',
+  video_extend: 'Extend Video',
+};
+
 export function VideoPage() {
   const models = useModelsStore((s) => s.models);
   const loading = useModelsStore((s) => s.loading);
@@ -24,8 +31,9 @@ export function VideoPage() {
   const [mediaInputs, setMediaInputs] = useState<Record<string, MediaInput>>({});
 
   const submit = useJobsStore((s) => s.submit);
-  const allJobs = useJobsStore((s) => s.getAllJobs());
-  const activeJobs = useJobsStore((s) => s.getActiveJobs());
+  const jobs = useJobsStore((s) => s.jobs);
+  const allJobs = useMemo(() => [...jobs.values()].sort((a, b) => b.created_at - a.created_at), [jobs]);
+  const activeJobs = useMemo(() => allJobs.filter((j) => j.state === 'queued' || j.state === 'submitted' || j.state === 'processing'), [allJobs]);
 
   const model: ModelSpec | undefined = useMemo(
     () => models.find((m) => m.provider_id === selectedProvider && m.id === selectedModel),
@@ -92,7 +100,7 @@ export function VideoPage() {
                     : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
                 }`}
               >
-                {c.replace('2', '→').replace('_', ' ')}
+                {VIDEO_CAPABILITY_LABELS[c] ?? c}
               </button>
             ))}
           </div>
@@ -176,7 +184,7 @@ export function VideoPage() {
             icon={isRunning ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
           >
             {isRunning ? 'Generating...' : 'Generate Video'}
-            <span className="ml-1 text-[var(--text-xs)] opacity-70">{isMac() ? '⌘' : 'Ctrl'}+Enter</span>
+            <kbd className="ml-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[var(--text-xs)] font-normal">{isMac() ? '⌘' : 'Ctrl'}⏎</kbd>
           </Button>
 
           <JobTray />

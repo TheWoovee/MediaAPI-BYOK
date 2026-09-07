@@ -29,7 +29,8 @@ export function EditPage() {
   const maskRef = useRef<HTMLCanvasElement>(null);
 
   const submit = useJobsStore((s) => s.submit);
-  const allJobs = useJobsStore((s) => s.getAllJobs());
+  const jobs = useJobsStore((s) => s.jobs);
+  const allJobs = useMemo(() => [...jobs.values()].sort((a, b) => b.created_at - a.created_at), [jobs]);
 
   const model: ModelSpec | undefined = useMemo(
     () => models.find((m) => m.provider_id === selectedProvider && m.id === selectedModel),

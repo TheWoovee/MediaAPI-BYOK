@@ -1,8 +1,8 @@
-import { Outlet, NavLink, useLocation } from 'react-router';
-import { useEffect } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router';
+import { useEffect, useState } from 'react';
 import {
   Sparkles, Pencil, Film, Clock, Key, Server, Settings, WifiOff,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, MoreHorizontal, X,
 } from 'lucide-react';
 import { useAppStore } from '../stores/app';
 import { useModelsStore } from '../stores/models';
@@ -20,6 +20,10 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
+/** First 4 items show as direct tabs on mobile; the rest live behind "More". */
+const MOBILE_PRIMARY = NAV_ITEMS.slice(0, 4);
+const MOBILE_OVERFLOW = NAV_ITEMS.slice(4);
+
 export function Layout() {
   const email = useAppStore((s) => s.email);
   const setEmail = useAppStore((s) => s.setEmail);
@@ -29,6 +33,12 @@ export function Layout() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const loadModels = useModelsStore((s) => s.loadModels);
   const location = useLocation();
+  const navigate = useNavigate();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const isOverflowActive = MOBILE_OVERFLOW.some((item) =>
+    location.pathname.startsWith(item.to),
+  );
 
   useEffect(() => {
     applyTheme(getStoredTheme());
@@ -115,9 +125,56 @@ export function Layout() {
           </main>
         </div>
 
-        {/* Mobile bottom tab bar */}
+        {/* Mobile "More" slide-up sheet */}
+        {moreOpen && (
+          <div className="md:hidden fixed inset-0" style={{ zIndex: 'var(--z-modal, 50)' }}>
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMoreOpen(false)}
+            />
+            {/* Sheet */}
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--color-panel)] rounded-t-2xl border-t border-[var(--color-border-subtle)] pb-safe">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-subtle)]">
+                <span className="text-[var(--text-sm)] font-semibold text-[var(--color-text)]">
+                  More
+                </span>
+                <button
+                  onClick={() => setMoreOpen(false)}
+                  className="p-1.5 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="py-2">
+                {MOBILE_OVERFLOW.map((item) => {
+                  const isActive = location.pathname.startsWith(item.to);
+                  return (
+                    <button
+                      key={item.to}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        navigate(item.to);
+                      }}
+                      className={`w-full flex items-center gap-3 px-5 py-3 text-[var(--text-sm)] font-medium transition-colors ${
+                        isActive
+                          ? 'text-[var(--color-accent)] bg-[var(--color-accent-subtle)]'
+                          : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)]'
+                      }`}
+                    >
+                      <item.icon size={20} className="shrink-0" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile bottom tab bar — 5 tabs */}
         <nav className="md:hidden flex border-t border-[var(--color-border-subtle)] bg-[var(--color-panel)] shrink-0 safe-area-bottom">
-          {NAV_ITEMS.map((item) => {
+          {MOBILE_PRIMARY.map((item) => {
             const isActive = location.pathname.startsWith(item.to);
             return (
               <NavLink
@@ -134,6 +191,17 @@ export function Layout() {
               </NavLink>
             );
           })}
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+              isOverflowActive || moreOpen
+                ? 'text-[var(--color-accent)]'
+                : 'text-[var(--color-text-muted)]'
+            }`}
+          >
+            <MoreHorizontal size={20} />
+            <span>More</span>
+          </button>
         </nav>
       </div>
     </ToastProvider>

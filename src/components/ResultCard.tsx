@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Copy, ArrowRight, Maximize2, X } from 'lucide-react';
+import { Download, Copy, ArrowRight, Maximize2, X, Check } from 'lucide-react';
 import type { Job } from '../jobs/runner';
 import { Button } from './Button';
 
@@ -7,9 +7,11 @@ interface ResultCardProps {
   job: Job;
   index: number;
   onReuse?(job: Job): void;
+  selected?: boolean;
+  onSelect?(job: Job, index: number): void;
 }
 
-export function ResultCard({ job, index, onReuse }: ResultCardProps) {
+export function ResultCard({ job, index, onReuse, selected, onSelect }: ResultCardProps) {
   const [lightbox, setLightbox] = useState(false);
   const blobUrl = job.blobUrls?.[index];
   const output = job.outputs?.[index];
@@ -38,7 +40,7 @@ export function ResultCard({ job, index, onReuse }: ResultCardProps) {
 
   return (
     <>
-      <div className="group relative rounded-[var(--radius-md)] overflow-hidden bg-[var(--color-bg-tertiary)]">
+      <div className={`group relative rounded-[var(--radius-md)] overflow-hidden bg-[var(--color-bg-tertiary)] ${selected ? 'ring-2 ring-[var(--color-accent)]' : ''}`}>
         {isVideo ? (
           <video
             src={blobUrl}
@@ -58,6 +60,9 @@ export function ResultCard({ job, index, onReuse }: ResultCardProps) {
         )}
         <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="flex gap-1 justify-end">
+            {onSelect && (
+              <Button size="sm" variant="ghost" icon={<Check size={14} />} onClick={() => onSelect(job, index)} className={selected ? '!text-[var(--color-accent-text)] !bg-[var(--color-accent)]' : '!text-white !bg-white/20 hover:!bg-white/30'} title="Select for compare" />
+            )}
             <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={handleDownload} className="!text-white !bg-white/20 hover:!bg-white/30" />
             <Button size="sm" variant="ghost" icon={<Copy size={14} />} onClick={handleCopyPrompt} className="!text-white !bg-white/20 hover:!bg-white/30" title="Copy prompt" />
             {onReuse && (

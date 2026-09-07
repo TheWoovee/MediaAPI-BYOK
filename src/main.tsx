@@ -15,7 +15,7 @@ const ProvidersPage = lazy(() => import('./app/pages/Providers').then((m) => ({ 
 const LocalPage = lazy(() => import('./app/pages/Local').then((m) => ({ default: m.LocalPage })));
 const SettingsPage = lazy(() => import('./app/pages/Settings').then((m) => ({ default: m.SettingsPage })));
 
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV || import.meta.env.VITE_ENABLE_MOCK === '1') {
   import('./providers/mock').then(({ mockAdapter }) => {
     import('./providers/index').then(({ registerAdapter }) => {
       registerAdapter(mockAdapter);
@@ -28,6 +28,28 @@ function Loading() {
     <div className="flex items-center justify-center h-full">
       <div className="w-6 h-6 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
     </div>
+  );
+}
+
+/* ---- Service worker registration (production only) ---- */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker
+    .register(BASE_PATH + '/sw.js', { scope: BASE_PATH + '/' })
+    .then((reg) => {
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        newSW?.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // A new version is available
+            if (confirm('App updated. Reload?')) {
+              newSW.postMessage({ type: 'SKIP_WAITING' });
+            }
+          }
+        });
+      });
+    });
+  navigator.serviceWorker.addEventListener('controllerchange', () =>
+    window.location.reload(),
   );
 }
 
