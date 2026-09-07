@@ -1,0 +1,1 @@
+export { falAdapter } from './adapter';
