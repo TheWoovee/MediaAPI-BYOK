@@ -1,6 +1,10 @@
 const CACHE_NAME = 'studio-shell-v1';
 const SHELL_URLS = ['/studio/'];
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_URLS)),

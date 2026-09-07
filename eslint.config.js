@@ -5,7 +5,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'spike/**', 'postbuild.mjs', 'public/sw.js'],
+    ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'spike/**', 'postbuild.mjs', 'public/sw.js', 'scripts/serve-smoke.mjs'],
   },
   {
     rules: {

@@ -22,23 +22,27 @@ const HEALTH_ENDPOINTS: Record<ServerKind, string> = {
   swarmui: '/API/GetCurrentStatus',
 };
 
-function getOrigin(): string {
-  return window.location.origin;
-}
+const LAUNCH_COMMANDS: Record<ServerKind, { direct: string; relay: string }> = {
+  comfyui: {
+    direct: 'python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header',
+    relay: 'python main.py --listen 127.0.0.1 --port 8188',
+  },
+  a1111: {
+    direct: './webui.sh --api --cors-allow-origins=*',
+    relay: './webui.sh --api --listen',
+  },
+  swarmui: {
+    direct: 'launch-linux.sh --launch_mode none',
+    relay: 'launch-linux.sh --launch_mode none',
+  },
+  'openai-compat': {
+    direct: '# Base URL: http://localhost:8080/v1',
+    relay: '# Base URL: http://localhost:8080/v1',
+  },
+};
 
 function getLaunchCommand(kind: ServerKind, mode: 'direct' | 'relay'): string {
-  const origin = getOrigin();
-  if (kind === 'comfyui') {
-    return mode === 'direct'
-      ? `python main.py --listen 127.0.0.1 --enable-cors-header ${origin}`
-      : `python main.py --listen 127.0.0.1`;
-  }
-  if (kind === 'a1111') {
-    return mode === 'direct'
-      ? `python launch.py --api --listen --cors-allow-origins=${origin}`
-      : `python launch.py --api --listen`;
-  }
-  return '';
+  return LAUNCH_COMMANDS[kind]?.[mode] ?? '';
 }
 
 export function LocalPage() {
@@ -115,22 +119,47 @@ export function LocalPage() {
         </Button>
       </div>
 
-      {isSafari && (
-        <div className="flex items-start gap-2 p-3 mb-4 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)] text-[var(--text-sm)]">
-          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-          <div>
-            <strong>Safari blocks localhost connections</strong> from HTTPS pages. Use relay mode (tunnel through the Worker) or switch to Chrome/Firefox for direct local access.
-          </div>
+      <div className="flex flex-col gap-2 mb-4 text-[var(--text-xs)]">
+        <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span><strong>Chrome</strong> blocks localhost access by default. Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[var(--text-xs)]">chrome://flags/#allow-insecure-localhost</code> or allow the prompt when it appears.</span>
         </div>
-      )}
+        {isSafari && (
+          <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)]">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+            <span><strong>Safari</strong> blocks mixed content (HTTPS → HTTP). Use relay mode or switch to Chrome/Firefox for direct local access.</span>
+          </div>
+        )}
+      </div>
 
       {servers.length === 0 ? (
-        <EmptyState
-          icon={Server}
-          title="No local servers"
-          description="Connect ComfyUI, A1111/Forge, or other local generation servers"
-          action={<Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddDialogOpen(true)}>Add Server</Button>}
-        />
+        <div className="flex flex-col items-center gap-6 py-12">
+          <EmptyState
+            icon={Server}
+            title="No local servers"
+            description="Connect ComfyUI, A1111/Forge, SwarmUI, or other local generation servers"
+            action={<Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddDialogOpen(true)}>Add Server</Button>}
+          />
+          <div className="w-full max-w-lg">
+            <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Quick Start Commands</h3>
+            <div className="flex flex-col gap-2">
+              {(['comfyui', 'a1111', 'swarmui', 'openai-compat'] as ServerKind[]).map((k) => (
+                <div key={k} className="flex items-center gap-2 bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-2.5">
+                  <span className="text-[var(--text-xs)] font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
+                    {k === 'comfyui' ? 'ComfyUI' : k === 'a1111' ? 'A1111/Forge' : k === 'openai-compat' ? 'OpenAI' : 'SwarmUI'}
+                  </span>
+                  <code className="text-[var(--text-xs)] font-mono text-[var(--color-text-muted)] flex-1 truncate">{LAUNCH_COMMANDS[k].direct}</code>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(LAUNCH_COMMANDS[k].direct); toast('Copied', 'success'); }}
+                    className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors shrink-0"
+                  >
+                    <Copy size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {servers.map((s) => {

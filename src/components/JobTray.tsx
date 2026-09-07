@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Loader2, X, Check, AlertCircle } from 'lucide-react';
 import { useJobsStore, type Job } from '../jobs/runner';
 
@@ -62,7 +63,8 @@ function JobItem({ job }: { job: Job }) {
 }
 
 export function JobTray() {
-  const jobs = useJobsStore((s) => s.getAllJobs());
+  const jobsMap = useJobsStore((s) => s.jobs);
+  const jobs = useMemo(() => [...jobsMap.values()].sort((a, b) => b.created_at - a.created_at), [jobsMap]);
 
   if (jobs.length === 0) return null;
 

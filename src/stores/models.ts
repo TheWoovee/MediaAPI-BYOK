@@ -2,9 +2,15 @@ import { create } from 'zustand';
 import type { ModelSpec, ProviderAdapter, Capability } from '@shared/types';
 import { listAdapters } from '../providers/index';
 
+interface ProviderStatus {
+  loading: boolean;
+  error?: string;
+}
+
 interface ModelsState {
   models: ModelSpec[];
   loading: boolean;
+  providerStatus: Record<string, ProviderStatus>;
   error: string | null;
   loadModels(): Promise<void>;
   getModelsByCapability(cap: Capability): ModelSpec[];
@@ -14,31 +20,44 @@ interface ModelsState {
 export const useModelsStore = create<ModelsState>((set, get) => ({
   models: [],
   loading: false,
+  providerStatus: {},
   error: null,
 
   async loadModels() {
     if (get().loading) return;
-    set({ loading: true, error: null });
-    try {
-      const adapters: ProviderAdapter[] = listAdapters();
-      const all: ModelSpec[] = [];
-      await Promise.allSettled(
-        adapters.map(async (a) => {
-          const ctx = {
-            providerId: a.spec.id,
-            fetch,
-            resolveUrl: (u: string) => u,
-            uploadTemp: async () => '',
-            log: () => {},
-          };
+    const adapters: ProviderAdapter[] = listAdapters();
+
+    const status: Record<string, ProviderStatus> = {};
+    for (const a of adapters) status[a.spec.id] = { loading: true };
+    set({ loading: true, error: null, providerStatus: status });
+
+    await Promise.allSettled(
+      adapters.map(async (a) => {
+        const ctx = {
+          providerId: a.spec.id,
+          fetch,
+          resolveUrl: (u: string) => u,
+          uploadTemp: async () => '',
+          log: () => {},
+        };
+        try {
           const models = await a.listModels(ctx);
-          all.push(...models);
-        }),
-      );
-      set({ models: all, loading: false });
-    } catch (e) {
-      set({ error: (e as Error).message, loading: false });
-    }
+          set((s) => ({
+            models: [...s.models, ...models],
+            providerStatus: { ...s.providerStatus, [a.spec.id]: { loading: false } },
+          }));
+        } catch (e) {
+          set((s) => ({
+            providerStatus: {
+              ...s.providerStatus,
+              [a.spec.id]: { loading: false, error: (e as Error).message },
+            },
+          }));
+        }
+      }),
+    );
+
+    set({ loading: false });
   },
 
   getModelsByCapability(cap: Capability) {
