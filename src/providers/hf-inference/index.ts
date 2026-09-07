@@ -1,0 +1,1 @@
+export { hfInferenceAdapter } from './adapter';

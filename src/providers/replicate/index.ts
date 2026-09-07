@@ -1,0 +1,1 @@
+export { replicateAdapter } from './adapter';
