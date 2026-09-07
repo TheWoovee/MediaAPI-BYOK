@@ -59,7 +59,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --var ACCESS_TEAM_DOMAIN:${{ vars.ACCESS_TEAM_DOMAIN }} --var ACCESS_AUD:${{ vars.ACCESS_AUD }}
+          command: deploy --var ACCESS_TEAM_DOMAIN:${{ vars.ACCESS_TEAM_DOMAIN || secrets.ACCESS_TEAM_DOMAIN }} --var ACCESS_AUD:${{ vars.ACCESS_AUD || secrets.ACCESS_AUD }}
       - name: Ensure KEK secret exists (generated once on first deploy, never printed)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
