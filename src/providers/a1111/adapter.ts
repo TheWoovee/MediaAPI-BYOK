@@ -283,9 +283,12 @@ function outputsFromUpscale(data: ExtraSingleImageResponse): NormalizedOutput[] 
 // ---------------------------------------------------------------------------
 
 async function listModels(ctx: AdapterContext): Promise<ModelSpec[]> {
+  const timeout = AbortSignal.timeout(3000);
+  const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+
   async function fetchJsonSafe<T>(path: string): Promise<T | undefined> {
     try {
-      const res = await ctx.fetch(`http://localhost${path}`, { method: 'GET' });
+      const res = await ctx.fetch(`http://localhost${path}`, { method: 'GET', signal });
       if (!res.ok) return undefined;
       return (await res.json()) as T;
     } catch {

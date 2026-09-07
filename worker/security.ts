@@ -26,6 +26,7 @@ export const securityHeaders: MiddlewareHandler<{ Bindings: WorkerEnv }> = async
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  headers.set('X-Frame-Options', 'DENY');
   c.res = new Response(original.body, {
     status: original.status,
     statusText: original.statusText,

@@ -39,7 +39,7 @@ describe('proxy allowlist', () => {
 
   it('host matching works for wildcard patterns', () => {
     expect(hostMatches('user-demo.hf.space', ['*.hf.space'])).toBe(true);
-    expect(hostMatches('hf.space', ['*.hf.space'])).toBe(true);
+    expect(hostMatches('hf.space', ['*.hf.space'])).toBe(false);
     expect(hostMatches('evil.com', ['*.hf.space'])).toBe(false);
     expect(hostMatches('api.x.ai', ['api.x.ai'])).toBe(true);
     expect(hostMatches('evil.x.ai', ['api.x.ai'])).toBe(false);

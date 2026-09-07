@@ -4,6 +4,7 @@ import type { WorkerEnv } from './types';
 import { importKek, unwrapDek, open, resolveKekString } from './crypto';
 
 const HEADER_ALLOWLIST = new Set(['content-type', 'accept', 'prefer', 'x-runway-version', 'content-length']);
+const STRIP_RESPONSE_HEADERS = ['authorization', 'www-authenticate', 'proxy-authorization', 'proxy-authenticate'];
 
 function isAllowedHeader(name: string): boolean {
   const lower = name.toLowerCase();
@@ -13,7 +14,7 @@ function isAllowedHeader(name: string): boolean {
 export function hostMatches(hostname: string, patterns: string[]): boolean {
   for (const p of patterns) {
     if (p.startsWith('*.')) {
-      if (hostname.endsWith(p.slice(1)) || hostname === p.slice(2)) return true;
+      if (hostname.endsWith(p.slice(1))) return true;
     } else if (hostname === p) {
       return true;
     }
@@ -136,10 +137,12 @@ proxyApp.all('/proxy/:provider/*', async (c) => {
     body: ['GET', 'HEAD'].includes(method) ? undefined : c.req.raw.body,
     // @ts-expect-error Cloudflare Workers support duplex
     duplex: ['GET', 'HEAD'].includes(method) ? undefined : 'half',
+    redirect: 'manual',
   });
 
   const out = new Headers(res.headers);
   out.delete('set-cookie');
+  for (const h of STRIP_RESPONSE_HEADERS) out.delete(h);
   out.set('cache-control', 'no-store');
   return new Response(res.body, { status: res.status, headers: out });
 });
@@ -155,13 +158,17 @@ proxyApp.get('/fetch', async (c) => {
     return c.json({ error: 'invalid url' }, 400);
   }
 
+  if (parsed.protocol !== 'https:') {
+    return c.json({ error: 'only https URLs are allowed' }, 400);
+  }
+
   const allOutputHosts = getAllOutputHosts();
 
   if (!hostMatches(parsed.hostname, allOutputHosts)) {
     return c.json({ error: 'host not allowed' }, 403);
   }
 
-  const res = await fetch(parsed);
+  const res = await fetch(parsed, { redirect: 'manual' });
   const out = new Headers(res.headers);
   out.delete('set-cookie');
   out.set('cache-control', 'no-store');

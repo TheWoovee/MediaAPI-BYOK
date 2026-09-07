@@ -202,20 +202,27 @@ function comboOptions(nodeInfo: ObjectInfoNode | undefined, inputKey: string): s
 }
 
 async function listModels(ctx: AdapterContext): Promise<ModelSpec[]> {
-  const [ckptInfo, samplerInfo, upscaleInfo] = await Promise.all([
-    fetchObjectInfo(ctx, 'CheckpointLoaderSimple'),
-    fetchObjectInfo(ctx, 'KSampler'),
-    fetchObjectInfo(ctx, 'UpscaleModelLoader'),
-  ]);
+  try {
+    const timeout = AbortSignal.timeout(3000);
+    const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+    const boundCtx = { ...ctx, signal };
+    const [ckptInfo, samplerInfo, upscaleInfo] = await Promise.all([
+      fetchObjectInfo(boundCtx, 'CheckpointLoaderSimple'),
+      fetchObjectInfo(boundCtx, 'KSampler'),
+      fetchObjectInfo(boundCtx, 'UpscaleModelLoader'),
+    ]);
 
-  const dyn: DynamicOptions = {
-    ckptNames: comboOptions(ckptInfo, 'ckpt_name') ?? OFFLINE_OPTIONS.ckptNames,
-    samplerNames: comboOptions(samplerInfo, 'sampler_name') ?? OFFLINE_OPTIONS.samplerNames,
-    schedulers: comboOptions(samplerInfo, 'scheduler') ?? OFFLINE_OPTIONS.schedulers,
-    upscaleModels: comboOptions(upscaleInfo, 'model_name') ?? OFFLINE_OPTIONS.upscaleModels,
-  };
+    const dyn: DynamicOptions = {
+      ckptNames: comboOptions(ckptInfo, 'ckpt_name') ?? OFFLINE_OPTIONS.ckptNames,
+      samplerNames: comboOptions(samplerInfo, 'sampler_name') ?? OFFLINE_OPTIONS.samplerNames,
+      schedulers: comboOptions(samplerInfo, 'scheduler') ?? OFFLINE_OPTIONS.schedulers,
+      upscaleModels: comboOptions(upscaleInfo, 'model_name') ?? OFFLINE_OPTIONS.upscaleModels,
+    };
 
-  return buildModelSpecs(dyn);
+    return buildModelSpecs(dyn);
+  } catch {
+    return buildModelSpecs(OFFLINE_OPTIONS);
+  }
 }
 
 // ---------------------------------------------------------------------------

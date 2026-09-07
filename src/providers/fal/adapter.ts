@@ -113,11 +113,13 @@ export const falAdapter: ProviderAdapter = {
   capabilities: allCapabilities(),
 
   async listModels(ctx: AdapterContext): Promise<ModelSpec[]> {
-    // Try live refresh; fall back to static list on any failure.
     try {
+      const timeout = AbortSignal.timeout(3000);
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
       const res = await ctx.fetch('https://api.fal.ai/v1/models?limit=50', {
         method: 'GET',
         headers: { 'X-Proxy-Host': 'api.fal.ai' },
+        signal,
       });
       if (res.ok) {
         ctx.log('fal: live model list fetched');

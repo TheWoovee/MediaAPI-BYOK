@@ -193,6 +193,7 @@ localServersApp.all('/local/:serverId/*', async (c) => {
     body: ['GET', 'HEAD'].includes(method) ? undefined : c.req.raw.body,
     // @ts-expect-error Cloudflare Workers support duplex
     duplex: ['GET', 'HEAD'].includes(method) ? undefined : 'half',
+    redirect: 'manual',
   });
 
   const out = new Headers(res.headers);

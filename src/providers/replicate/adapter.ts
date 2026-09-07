@@ -178,7 +178,7 @@ export const replicateAdapter: ProviderAdapter = {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Replicate poll failed (${res.status}): ${text}`);
+      return { state: 'failed' as const, error: `Replicate poll failed (${res.status}): ${text}` };
     }
 
     const prediction: ReplicatePrediction = await res.json() as ReplicatePrediction;

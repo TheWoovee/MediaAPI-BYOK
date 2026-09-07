@@ -18,7 +18,9 @@ export const googleAdapter: ProviderAdapter = {
 
   async listModels(ctx: AdapterContext): Promise<ModelSpec[]> {
     try {
-      const res = await ctx.fetch(new Request(`${BASE}/models`, { method: 'GET' }));
+      const timeout = AbortSignal.timeout(3000);
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+      const res = await ctx.fetch(new Request(`${BASE}/models`, { method: 'GET', signal }));
       if (res.ok) {
         const json = await res.json() as { models?: { name: string; displayName?: string; supportedGenerationMethods?: string[] }[] };
         if (json.models) {
@@ -165,7 +167,7 @@ export const googleAdapter: ProviderAdapter = {
     if (!h.poll_url) throw new Error('No poll URL for async job');
 
     const res = await ctx.fetch(new Request(h.poll_url, { method: 'GET' }));
-    if (!res.ok) throw new Error(`Google poll ${res.status}: ${await res.text()}`);
+    if (!res.ok) return { state: 'failed' as const, error: `Google poll ${res.status}: ${await res.text()}` };
 
     const json = await res.json() as {
       done?: boolean;

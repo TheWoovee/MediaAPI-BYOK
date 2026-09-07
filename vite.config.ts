@@ -8,5 +8,8 @@ export default defineConfig({
   resolve: {
     alias: { '@shared': resolve(import.meta.dirname!, 'shared') },
   },
-  plugins: [react(), cloudflare()],
+  plugins: [
+    react(),
+    cloudflare({ persistState: true }),
+  ],
 });

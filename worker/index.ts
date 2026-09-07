@@ -15,6 +15,11 @@ const app = new Hono<{ Bindings: WorkerEnv }>().basePath(BASE_PATH);
 
 app.use('*', securityHeaders);
 
+app.onError((err, c) => {
+  console.error(`[${c.req.method}] ${c.req.path}:`, err.message);
+  return c.json({ error: 'internal server error' }, 500);
+});
+
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }));
 
 app.use('/api/*', async (c, next) => {

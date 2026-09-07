@@ -175,7 +175,7 @@ export const xaiAdapter: ProviderAdapter = {
     if (!h.poll_url) throw new Error('No poll URL for async job');
 
     const res = await ctx.fetch(new Request(h.poll_url, { method: 'GET' }));
-    if (!res.ok) throw new Error(`xAI poll ${res.status}: ${await res.text()}`);
+    if (!res.ok) return { state: 'failed' as const, error: `xAI poll ${res.status}: ${await res.text()}` };
 
     const json = await res.json() as {
       status: 'pending' | 'done' | 'failed' | 'expired';

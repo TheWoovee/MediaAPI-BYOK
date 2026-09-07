@@ -10,7 +10,9 @@ export const openaiCompatAdapter: ProviderAdapter = {
 
   async listModels(ctx: AdapterContext): Promise<ModelSpec[]> {
     try {
-      const res = await ctx.fetch(new Request(ctx.resolveUrl('/v1/models'), { method: 'GET' }));
+      const timeout = AbortSignal.timeout(3000);
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+      const res = await ctx.fetch(new Request(ctx.resolveUrl('/v1/models'), { method: 'GET', signal }));
       if (res.ok) {
         const json = await res.json() as { data?: { id: string }[] };
         if (json.data && json.data.length > 0) {
