@@ -1,0 +1,1 @@
+export { openaiCompatAdapter } from './adapter';

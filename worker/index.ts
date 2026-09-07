@@ -6,6 +6,7 @@ import { credentialsApp } from './routes/credentials';
 import { localServersApp } from './routes/local-servers';
 import { jobsApp } from './routes/jobs';
 import { uploadsApp, cleanExpiredUploads, TMP_PATH } from './routes/uploads';
+import { aiApp } from './routes/ai';
 import { securityHeaders } from './security';
 import { providers } from '@shared/providers/registry';
 import type { WorkerEnv } from './types';
@@ -54,6 +55,7 @@ app.route('/api', localServersApp);
 app.route('/api', proxyApp);
 app.route('/api', jobsApp);
 app.route('/api', uploadsApp);
+app.route('/api', aiApp);
 
 app.get('*', async (c) => {
   const url = new URL(c.req.url);
