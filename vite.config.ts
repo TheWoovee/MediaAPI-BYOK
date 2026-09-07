@@ -10,6 +10,11 @@ export default defineConfig({
   },
   plugins: [
     react(),
-    cloudflare({ persistState: true }),
+    cloudflare({
+      persistState: true,
+      // Workers AI has no local emulation. Remote bindings need a Cloudflare login/token; default them on only
+      // when credentials are present so `vite dev`/`vite preview` work offline (AI calls then fail at runtime).
+      remoteBindings: process.env.CF_REMOTE_BINDINGS === '1' || Boolean(process.env.CLOUDFLARE_API_TOKEN),
+    }),
   ],
 });
