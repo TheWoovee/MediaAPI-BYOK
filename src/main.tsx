@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { lazy, Suspense } from 'react';
 import { BASE_PATH } from '@shared/config';
 import { Layout } from './app/Layout';
+import './providers/all';
 
 const GeneratePage = lazy(() => import('./app/pages/Generate').then((m) => ({ default: m.GeneratePage })));
 const EditPage = lazy(() => import('./app/pages/Edit').then((m) => ({ default: m.EditPage })));
