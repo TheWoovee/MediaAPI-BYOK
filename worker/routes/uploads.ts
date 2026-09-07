@@ -28,6 +28,7 @@ uploadsApp.post('/uploads', async (c) => {
   const now = Date.now();
   const expiresAt = now + UPLOAD_TTL_MS;
 
+  if (!c.env.TMP) return c.json({ error: 'temporary uploads are not configured on this deployment (R2 bucket missing)' }, 501);
   await c.env.TMP.put(r2Key, body, { httpMetadata: { contentType } });
   await c.env.DB.prepare(
     'INSERT INTO temp_uploads (id, email, r2_key, mime, bytes, expires_at) VALUES (?,?,?,?,?,?)',
@@ -47,6 +48,7 @@ uploadsApp.get('/tmp/:id', async (c) => {
 
   if (!row || row.expires_at < Date.now()) return c.json({ error: 'not found' }, 404);
 
+  if (!c.env.TMP) return c.json({ error: 'not found' }, 404);
   const obj = await c.env.TMP.get(row.r2_key);
   if (!obj) return c.json({ error: 'not found' }, 404);
 
@@ -63,7 +65,7 @@ export async function cleanExpiredUploads(env: WorkerEnv): Promise<number> {
   const expired = await env.DB.prepare('SELECT id, r2_key FROM temp_uploads WHERE expires_at < ?').bind(now).all();
   let count = 0;
   for (const row of expired.results as { id: string; r2_key: string }[]) {
-    await env.TMP.delete(row.r2_key);
+    if (env.TMP) await env.TMP.delete(row.r2_key);
     await env.DB.prepare('DELETE FROM temp_uploads WHERE id=?').bind(row.id).run();
     count++;
   }

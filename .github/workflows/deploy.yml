@@ -20,6 +20,34 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Ensure D1 database and R2 bucket exist; resolve the D1 id into the build config
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          api() { curl -sS -X "$1" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4$2" ${3:+--data "$3"}; }
+          # D1: find or create, then write its id into both configs (root jsonc + generated dist json)
+          DID=$(api GET "/accounts/$CF_ACCOUNT/d1/database?name=mediaapi-byok" | jq -r '.result[]? | select(.name=="mediaapi-byok") | .uuid' | head -1)
+          if [ -z "$DID" ]; then
+            RES=$(api POST "/accounts/$CF_ACCOUNT/d1/database" '{"name":"mediaapi-byok"}')
+            DID=$(echo "$RES" | jq -r '.result.uuid // empty')
+            [ -n "$DID" ] && echo "Created D1 database mediaapi-byok" || { echo "Cannot find or create the D1 database. The API token needs Account → D1: Edit."; echo "$RES" | jq -r '.errors[]?.message'; exit 1; }
+          fi
+          echo "D1 database id: $DID"
+          sed -i -E "s/\"database_id\": *\"[^\"]*\"/\"database_id\": \"$DID\"/" wrangler.jsonc
+          GEN=$(ls dist/*/wrangler.json | head -1)
+          jq --arg id "$DID" '(.d1_databases[] | select(.binding=="DB") | .database_id) = $id' "$GEN" > "$GEN.tmp" && mv "$GEN.tmp" "$GEN"
+          # R2: find or create; if impossible (no permission / R2 not enabled) deploy without the binding (temp uploads disabled)
+          if api GET "/accounts/$CF_ACCOUNT/r2/buckets" | jq -e '.result.buckets[]? | select(.name=="mediaapi-byok-tmp")' >/dev/null; then
+            echo "R2 bucket mediaapi-byok-tmp exists"
+          elif api POST "/accounts/$CF_ACCOUNT/r2/buckets" '{"name":"mediaapi-byok-tmp"}' | jq -e .success >/dev/null; then
+            echo "Created R2 bucket mediaapi-byok-tmp"
+          else
+            echo "::warning::R2 bucket unavailable (token lacks Workers R2 Storage: Edit, or R2 is not enabled on the account). Deploying WITHOUT temp uploads; providers that need public input URLs will be unavailable until R2 is set up."
+            jq 'del(.r2_buckets)' "$GEN" > "$GEN.tmp" && mv "$GEN.tmp" "$GEN"
+            sed -i -E '/"r2_buckets": \[/,/\],/d' wrangler.jsonc
+          fi
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
