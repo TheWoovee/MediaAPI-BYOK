@@ -106,4 +106,12 @@ jobs:
             check_app "$HOST/studio/api/tmp" bypass "Studio temp files"
           fi
 
+          # 11. Live routing probe (only meaningful after the first deploy)
+          HC=$(curl -sS -o /tmp/health.txt -w "%{http_code}" -m 20 "https://$HOST/studio/api/health" || echo "000")
+          if [ "$HC" = "200" ] && grep -q '"ok":true' /tmp/health.txt; then ok "Live: https://$HOST/studio/api/health answers from the Worker (route intercepts in front of Pages)"
+          elif [ "$HC" = "000" ]; then info "Live probe: could not reach https://$HOST"
+          else info "Live probe: https://$HOST/studio/api/health returned HTTP $HC ($(head -c 120 /tmp/health.txt | tr '\n' ' ')). If this is your Pages 404 page, the Worker route is not intercepting on this host; see docs/setup-cloudflare.md §7 for the studio.thewoovee.com fallback."; fi
+          MC=$(curl -sS -o /dev/null -w "%{http_code}" -m 20 "https://$HOST/studio/api/me" || echo "000")
+          case "$MC" in 302|403) ok "Live: /studio/api/me is protected (HTTP $MC: $([ "$MC" = 302 ] && echo 'Access login redirect' || echo 'Worker refuses without an Access token'))";; 200) bad "Live: /studio/api/me answered 200 WITHOUT login — Access is not protecting /studio and the Worker accepted the request; check ENVIRONMENT var and Access app";; *) info "Live: /studio/api/me returned HTTP $MC";; esac
+
           echo; if [ "$FAILED" = 1 ]; then echo "Some checks failed. See summary."; exit 1; else echo "All checks passed."; fi
