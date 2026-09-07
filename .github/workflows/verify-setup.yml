@@ -63,8 +63,8 @@ jobs:
           # 6. R2
           R2=$(api "/accounts/$CF_ACCOUNT/r2/buckets")
           if echo "$R2" | jq -e .success >/dev/null; then
-            echo "$R2" | jq -e '.result.buckets[]? | select(.name=="mediaapi-byok-tmp")' >/dev/null && ok "R2 bucket mediaapi-byok-tmp exists" || bad "R2 bucket mediaapi-byok-tmp not found (create it in R2 Object Storage)"
-          else bad "Token lacks Account → Workers R2 Storage: Edit, or R2 is not enabled on the account ($(err "$R2"))"; fi
+            echo "$R2" | jq -e '.result.buckets[]? | select(.name=="mediaapi-byok-tmp")' >/dev/null && ok "R2 bucket mediaapi-byok-tmp exists" || info "R2 bucket mediaapi-byok-tmp not found yet (the deploy creates it once R2 is enabled)"
+          else info "R2 is optional: temp uploads stay disabled until R2 is enabled in the dashboard (R2 Object Storage → enable) and the token has Workers R2 Storage: Edit ($(err "$R2"))"; fi
 
           # 7. Workers AI
           if api "/accounts/$CF_ACCOUNT/ai/models/search?per_page=1" | jq -e .success >/dev/null; then ok "Token can call Workers AI"; else info "Token cannot read Workers AI models (only matters for the REST path; the binding works regardless)"; fi

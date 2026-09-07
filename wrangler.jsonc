@@ -20,7 +20,7 @@
     {
       "binding": "DB",
       "database_name": "mediaapi-byok",
-      "database_id": "local-only",
+      "database_id": "4776d0cc-5a07-4704-8466-6bd234f92f6f",
       "migrations_dir": "worker/migrations"
     }
   ],
