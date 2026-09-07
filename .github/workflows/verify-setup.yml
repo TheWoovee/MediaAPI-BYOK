@@ -18,6 +18,7 @@ jobs:
         run: |
           set -u
           api() { curl -sS -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4$1"; }
+          err() { echo "$1" | jq -r '[.errors[]? | "\(.code) \(.message)"] | join("; ")' 2>/dev/null; }
           ok()   { echo "PASS  $1"; echo "- ✅ $1" >> "$GITHUB_STEP_SUMMARY"; }
           bad()  { echo "FAIL  $1"; echo "- ❌ $1" >> "$GITHUB_STEP_SUMMARY"; FAILED=1; }
           info() { echo "INFO  $1"; echo "- ℹ️ $1" >> "$GITHUB_STEP_SUMMARY"; }
@@ -41,8 +42,11 @@ jobs:
           ZID=$(api "/zones?name=$ZONE" | jq -r '.result[0].id // empty')
           if [ -n "$ZID" ]; then ok "Zone $ZONE is on this account (token can read zones)"; else bad "Zone $ZONE not visible to this token (needs Zone permissions for thewoovee.com)"; fi
           if [ -n "$ZID" ]; then
-            REC=$(api "/zones/$ZID/dns_records?name=$HOST" | jq -r '.result[0] | "\(.type) \(.content) proxied=\(.proxied)"' 2>/dev/null)
-            case "$REC" in *pages.dev*) ok "$HOST is a Cloudflare Pages custom domain ($REC)";; "null"*|"") bad "$HOST has no DNS record";; *) info "$HOST record: $REC";; esac
+            DNS=$(api "/zones/$ZID/dns_records?name=$HOST")
+            if echo "$DNS" | jq -e .success >/dev/null; then
+              REC=$(echo "$DNS" | jq -r '.result[0] | "\(.type) \(.content) proxied=\(.proxied)"' 2>/dev/null)
+              case "$REC" in *pages.dev*) ok "$HOST is a Cloudflare Pages custom domain ($REC)";; "null"*|"") bad "$HOST has no DNS record";; *) info "$HOST record: $REC";; esac
+            else info "Cannot read DNS records (token lacks Zone → DNS: Read; optional, verification only): $(err "$DNS")"; fi
             WR=$(api "/zones/$ZID/workers/routes"); if echo "$WR" | jq -e .success >/dev/null; then ok "Token can manage Workers Routes on the zone ($(echo "$WR" | jq '.result|length') existing routes)"; else bad "Token lacks Zone → Workers Routes: Edit"; fi
           fi
 
@@ -54,13 +58,13 @@ jobs:
           if echo "$D1" | jq -e .success >/dev/null; then
             DID=$(echo "$D1" | jq -r '.result[] | select(.name=="mediaapi-byok") | .uuid' | head -1)
             [ -n "$DID" ] && ok "D1 database mediaapi-byok exists, id=$DID" || bad "D1 database mediaapi-byok not found (create it in Storage & Databases → D1)"
-          else bad "Token lacks Account → D1: Edit"; fi
+          else bad "Token lacks Account → D1: Edit ($(err "$D1"))"; fi
 
           # 6. R2
           R2=$(api "/accounts/$CF_ACCOUNT/r2/buckets")
           if echo "$R2" | jq -e .success >/dev/null; then
             echo "$R2" | jq -e '.result.buckets[]? | select(.name=="mediaapi-byok-tmp")' >/dev/null && ok "R2 bucket mediaapi-byok-tmp exists" || bad "R2 bucket mediaapi-byok-tmp not found (create it in R2 Object Storage)"
-          else bad "Token lacks Account → Workers R2 Storage: Edit (or R2 not enabled)"; fi
+          else bad "Token lacks Account → Workers R2 Storage: Edit, or R2 is not enabled on the account ($(err "$R2"))"; fi
 
           # 7. Workers AI
           if api "/accounts/$CF_ACCOUNT/ai/models/search?per_page=1" | jq -e .success >/dev/null; then ok "Token can call Workers AI"; else info "Token cannot read Workers AI models (only matters for the REST path; the binding works regardless)"; fi
@@ -70,18 +74,20 @@ jobs:
           if echo "$ORG" | jq -e .success >/dev/null; then
             AD=$(echo "$ORG" | jq -r .result.auth_domain)
             if [ "https://$AD" = "$TEAM_DOMAIN" ]; then ok "Team domain matches: https://$AD"; else info "Set GitHub variable ACCESS_TEAM_DOMAIN to: https://$AD (currently '${TEAM_DOMAIN:-unset}')"; FAILED=1; fi
-          else info "Token cannot read Access settings (add Account → Access: Apps and Policies: Read to let this check run); skipping Access checks"; fi
+            ACCESS_OK=1
+          else ACCESS_OK=0; info "Cannot read Zero Trust settings: $(err "$ORG"). Add token permissions Account → 'Access: Organizations, Identity Providers, and Groups: Read' and 'Access: Apps and Policies: Read' (verification only) and rerun; Access checks below are skipped"; fi
 
           # 9. Identity providers
           IDP=$(api "/accounts/$CF_ACCOUNT/access/identity_providers")
-          if echo "$IDP" | jq -e .success >/dev/null; then
+          if [ "$ACCESS_OK" = 1 ] && echo "$IDP" | jq -e .success >/dev/null; then
             echo "$IDP" | jq -e '.result[] | select(.type=="onetimepin")' >/dev/null && ok "One-time PIN identity provider is configured" || bad "One-time PIN identity provider missing (Zero Trust → Integrations → Identity providers)"
             echo "$IDP" | jq -e '.result[] | select(.type=="google")' >/dev/null && info "Google login is configured" || info "Google login not configured (optional)"
           fi
 
           # 10. Access applications
           APPS=$(api "/accounts/$CF_ACCOUNT/access/apps?per_page=100")
-          if echo "$APPS" | jq -e .success >/dev/null; then
+          if [ "$ACCESS_OK" = 1 ] && echo "$APPS" | jq -e .success >/dev/null; then
+            info "Access applications visible to the token: $(echo "$APPS" | jq -r '[.result[] | .domain] | join(", ")')"
             check_app() { # $1 expected domain, $2 expected decision, $3 label
               A=$(echo "$APPS" | jq -c --arg d "$1" '.result[] | select(.domain==$d or (.self_hosted_domains//[]|index($d)))' | head -1)
               if [ -z "$A" ]; then bad "Access app for $1 not found ($3)"; return; fi
