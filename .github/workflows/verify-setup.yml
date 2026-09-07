@@ -27,9 +27,9 @@ jobs:
           # 0. Secrets present
           [ -n "$CF_TOKEN" ]   && ok "GitHub secret CLOUDFLARE_API_TOKEN is set"   || bad "GitHub secret CLOUDFLARE_API_TOKEN is missing"
           [ -n "$CF_ACCOUNT" ] && ok "GitHub secret CLOUDFLARE_ACCOUNT_ID is set"  || bad "GitHub secret CLOUDFLARE_ACCOUNT_ID is missing"
-          [ -n "$TEAM_DOMAIN" ] && ok "GitHub variable ACCESS_TEAM_DOMAIN is set ($TEAM_DOMAIN)" || bad "GitHub variable ACCESS_TEAM_DOMAIN is missing"
-          [ -n "$AUD" ] && ok "GitHub variable ACCESS_AUD is set (${AUD:0:8}…)" || bad "GitHub variable ACCESS_AUD is missing"
-          [ "$FAILED" = 1 ] && { echo "Fix the GitHub secrets/variables first."; exit 1; }
+          [ "$FAILED" = 1 ] && { echo "Fix the GitHub secrets first."; exit 1; }
+          [ -n "$TEAM_DOMAIN" ] && ok "GitHub variable ACCESS_TEAM_DOMAIN is set ($TEAM_DOMAIN)" || info "GitHub variable ACCESS_TEAM_DOMAIN is missing (Settings → Secrets and variables → Actions → Variables tab, not Secrets)"
+          [ -n "$AUD" ] && ok "GitHub variable ACCESS_AUD is set (${AUD:0:8}…)" || info "GitHub variable ACCESS_AUD is missing (Variables tab); the correct values are printed below if the token can read Access"
 
           # 1. Token valid
           if api /user/tokens/verify | jq -e '.success and .result.status=="active"' >/dev/null; then ok "API token is valid and active"; else bad "API token invalid or inactive"; exit 1; fi
@@ -69,7 +69,7 @@ jobs:
           ORG=$(api "/accounts/$CF_ACCOUNT/access/organization")
           if echo "$ORG" | jq -e .success >/dev/null; then
             AD=$(echo "$ORG" | jq -r .result.auth_domain)
-            [ "https://$AD" = "$TEAM_DOMAIN" ] && ok "Team domain matches: https://$AD" || bad "ACCESS_TEAM_DOMAIN should be https://$AD (currently $TEAM_DOMAIN)"
+            if [ "https://$AD" = "$TEAM_DOMAIN" ]; then ok "Team domain matches: https://$AD"; else info "Set GitHub variable ACCESS_TEAM_DOMAIN to: https://$AD (currently '${TEAM_DOMAIN:-unset}')"; FAILED=1; fi
           else info "Token cannot read Access settings (add Account → Access: Apps and Policies: Read to let this check run); skipping Access checks"; fi
 
           # 9. Identity providers
@@ -90,7 +90,7 @@ jobs:
               DEC=$(echo "$P" | jq -r '[.result[].decision] | join(",")')
               case ",$DEC," in *",$2,"*) ok "Access app $3 ($1): policy $2 present";; *) bad "Access app $3 ($1): expected a policy with decision '$2', found '${DEC:-none}'";; esac
               if [ "$3" = "Studio" ]; then
-                [ "$AAUD" = "$AUD" ] && ok "ACCESS_AUD matches the Studio app AUD" || bad "ACCESS_AUD does not match the Studio app (app AUD starts ${AAUD:0:8}…)"
+                if [ "$AAUD" = "$AUD" ]; then ok "ACCESS_AUD matches the Studio app AUD"; else info "Set GitHub variable ACCESS_AUD to: $AAUD (currently '${AUD:-unset}')"; FAILED=1; fi
                 EM=$(echo "$P" | jq -r '[.result[] | select(.decision=="allow") | .include[]? | .email?.email // empty] | join(",")')
                 [ -n "$EM" ] && info "Studio allow-list emails: $EM" || info "Studio allow policy has no email include (check the policy Include rule)"
               fi
