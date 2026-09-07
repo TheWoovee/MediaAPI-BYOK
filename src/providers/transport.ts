@@ -39,41 +39,54 @@ export function makeContext(spec: ProviderSpec, opts: MakeContextOpts = {}): Ada
     },
     signal: opts.signal,
     log(_msg: string): void {
-      // no-op in browser; adapters can call ctx.log for debugging
+      // no-op in browser
     },
   };
+}
+
+function extractRequestInfo(input: RequestInfo | URL, init?: RequestInit): { url: string; method: string; headers: Headers } {
+  if (input instanceof Request) {
+    const headers = new Headers(input.headers);
+    if (init?.headers) {
+      new Headers(init.headers).forEach((v, k) => headers.set(k, v));
+    }
+    return { url: input.url, method: init?.method ?? input.method, headers };
+  }
+  const url = input instanceof URL ? input.href : input;
+  return { url, method: init?.method ?? 'GET', headers: new Headers(init?.headers) };
 }
 
 function buildFetch(spec: ProviderSpec, opts: MakeContextOpts): typeof fetch {
   if (spec.transport === 'proxy') {
     return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const req = new Request(input, init);
-      const url = new URL(req.url);
-      const path = url.pathname.replace(/^\//, '') + url.search;
+      const { url, method, headers } = extractRequestInfo(input, init);
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/^\//, '') + parsed.search;
 
-      const headers = new Headers(req.headers);
       if (opts.credentialId) {
         headers.set('X-Credential', opts.credentialId);
       } else if (opts.credential) {
         headers.set('X-Credential-Inline', opts.credential);
       }
 
-      if (url.hostname !== spec.hosts[0]) {
-        headers.set('X-Proxy-Host', url.hostname);
+      if (parsed.hostname !== spec.hosts[0]) {
+        headers.set('X-Proxy-Host', parsed.hostname);
       }
 
+      const body = ['GET', 'HEAD'].includes(method) ? undefined : init?.body;
+
       return fetch(`${BASE_PATH}/api/proxy/${spec.id}/${path}`, {
-        method: req.method,
+        method,
         headers,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
+        body,
+        signal: opts.signal,
       });
     };
   }
 
   if (spec.transport === 'direct') {
     return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const req = new Request(input, init);
-      const headers = new Headers(req.headers);
+      const { url, method, headers } = extractRequestInfo(input, init);
       if (opts.credential && spec.auth.scheme === 'raw') {
         headers.set(spec.auth.header, opts.credential);
       } else if (opts.credential && spec.auth.scheme === 'Key') {
@@ -81,29 +94,32 @@ function buildFetch(spec: ProviderSpec, opts: MakeContextOpts): typeof fetch {
       } else if (opts.credential) {
         headers.set(spec.auth.header, `Bearer ${opts.credential}`);
       }
-      return fetch(req.url, { ...init, headers });
+      return fetch(url, { method, headers, body: init?.body, signal: opts.signal });
     };
   }
 
   if (spec.transport === 'local') {
     return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const req = new Request(input, init);
-      const url = new URL(req.url);
-      const path = url.pathname.replace(/^\//, '') + url.search;
+      const { url, method, headers } = extractRequestInfo(input, init);
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/^\//, '') + parsed.search;
+      const body = ['GET', 'HEAD'].includes(method) ? undefined : init?.body;
 
       if (opts.localServerMode === 'relay' && opts.localServerId) {
         return fetch(`${BASE_PATH}/api/local/${opts.localServerId}/${path}`, {
-          method: req.method,
-          headers: req.headers,
-          body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
+          method,
+          headers,
+          body,
+          signal: opts.signal,
         });
       }
 
       const baseUrl = opts.localServerBaseUrl ?? `http://localhost:8188`;
       return fetch(`${baseUrl}/${path}`, {
-        method: req.method,
-        headers: req.headers,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
+        method,
+        headers,
+        body,
+        signal: opts.signal,
       });
     };
   }

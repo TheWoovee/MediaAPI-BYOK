@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Play, Loader2, History } from 'lucide-react';
+import { Play, Loader2, Film } from 'lucide-react';
 import type { Capability, MediaInput, ModelSpec } from '@shared/types';
 import { useModelsStore } from '../../stores/models';
 import { useJobsStore } from '../../jobs/runner';
@@ -11,18 +11,17 @@ import { EmptyState } from '../../components/EmptyState';
 import { Button } from '../../components/Button';
 import { onHotkey, isMac } from '../../lib/keyboard';
 
-const IMAGE_CAPABILITIES: Capability[] = ['text2image', 'image2image', 'inpaint', 'upscale', 'remove_bg'];
+const VIDEO_CAPABILITIES: Capability[] = ['text2video', 'image2video', 'video2video', 'video_extend'];
 
-export function GeneratePage() {
+export function VideoPage() {
   const models = useModelsStore((s) => s.models);
   const loading = useModelsStore((s) => s.loading);
 
-  const [capability, setCapability] = useState<Capability>('text2image');
+  const [capability, setCapability] = useState<Capability>('text2video');
   const [selectedProvider, setSelectedProvider] = useState<string>();
   const [selectedModel, setSelectedModel] = useState<string>();
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [mediaInputs, setMediaInputs] = useState<Record<string, MediaInput>>({});
-  const [batchCount, setBatchCount] = useState(1);
 
   const submit = useJobsStore((s) => s.submit);
   const allJobs = useJobsStore((s) => s.getAllJobs());
@@ -57,16 +56,13 @@ export function GeneratePage() {
 
   const handleSubmit = useCallback(async () => {
     if (!model || !selectedProvider || !selectedModel) return;
-    for (let i = 0; i < batchCount; i++) {
-      await submit({
-        provider_id: selectedProvider,
-        model_id: selectedModel,
-        capability,
-        params,
-        n: 1,
-      });
-    }
-  }, [model, selectedProvider, selectedModel, capability, params, batchCount, submit]);
+    await submit({
+      provider_id: selectedProvider,
+      model_id: selectedModel,
+      capability,
+      params,
+    });
+  }, [model, selectedProvider, selectedModel, capability, params, submit]);
 
   useEffect(() => {
     return onHotkey('mod+enter', (e) => {
@@ -75,16 +71,18 @@ export function GeneratePage() {
     });
   }, [handleSubmit]);
 
-  const succeededJobs = allJobs.filter((j) => j.state === 'succeeded' && j.blobUrls && j.blobUrls.length > 0);
+  const succeededJobs = allJobs.filter(
+    (j) => j.state === 'succeeded' && j.blobUrls && j.blobUrls.length > 0 &&
+    VIDEO_CAPABILITIES.includes(j.capability),
+  );
   const isRunning = activeJobs.length > 0;
 
   return (
     <div className="flex flex-col lg:flex-row h-full">
-      {/* Inspector panel (right on desktop, top on mobile) */}
       <div className="lg:order-2 lg:w-[340px] xl:w-[380px] shrink-0 border-b lg:border-b-0 lg:border-l border-[var(--color-border-subtle)] bg-[var(--color-panel)] overflow-y-auto">
         <div className="p-4 flex flex-col gap-4">
           <div className="flex gap-1.5 flex-wrap">
-            {IMAGE_CAPABILITIES.map((c) => (
+            {VIDEO_CAPABILITIES.map((c) => (
               <button
                 key={c}
                 onClick={() => setCapability(c)}
@@ -94,7 +92,7 @@ export function GeneratePage() {
                     : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
                 }`}
               >
-                {c.replace('2', '→')}
+                {c.replace('2', '→').replace('_', ' ')}
               </button>
             ))}
           </div>
@@ -108,63 +106,92 @@ export function GeneratePage() {
           />
 
           {model && (
-            <SchemaForm
-              params={model.params}
-              values={params}
-              onChange={setParams}
-              mediaInputs={mediaInputs}
-              onMediaInput={(field, input) => setMediaInputs((prev) => ({ ...prev, [field]: input }))}
-            />
+            <>
+              <SchemaForm
+                params={model.params}
+                values={params}
+                onChange={setParams}
+                mediaInputs={mediaInputs}
+                onMediaInput={(field, input) => setMediaInputs((prev) => ({ ...prev, [field]: input }))}
+              />
+
+              {model.limits?.durations && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[var(--text-sm)] font-medium text-[var(--color-text-secondary)]">Duration</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {model.limits.durations.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setParams((prev) => ({ ...prev, duration: d }))}
+                        className={`px-3 py-1.5 rounded-[var(--radius-sm)] text-[var(--text-sm)] transition-colors ${
+                          params.duration === d
+                            ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+                            : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
+                        }`}
+                      >
+                        {d}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {model.limits?.resolutions && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[var(--text-sm)] font-medium text-[var(--color-text-secondary)]">Resolution</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {model.limits.resolutions.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setParams((prev) => ({ ...prev, resolution: r }))}
+                        className={`px-3 py-1.5 rounded-[var(--radius-sm)] text-[var(--text-sm)] transition-colors ${
+                          params.resolution === r
+                            ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+                            : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {model?.pricing && (
-            <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] flex items-center gap-1">
+            <div className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
               ~{model.pricing.amount} {model.pricing.currency}/{model.pricing.unit}
             </div>
           )}
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">Batch</label>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={batchCount}
-                onChange={(e) => setBatchCount(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                className="w-14 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[var(--radius-sm)] px-2 py-1 text-[var(--text-sm)] text-center"
-              />
-            </div>
-            <Button
-              variant="primary"
-              size="lg"
-              className="flex-1"
-              onClick={handleSubmit}
-              loading={isRunning}
-              disabled={!model || loading}
-              icon={isRunning ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
-            >
-              {isRunning ? 'Running...' : 'Generate'}
-              <span className="ml-1 text-[var(--text-xs)] opacity-70">
-                {isMac() ? '⌘' : 'Ctrl'}+Enter
-              </span>
-            </Button>
-          </div>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={handleSubmit}
+            loading={isRunning}
+            disabled={!model || loading}
+            icon={isRunning ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
+          >
+            {isRunning ? 'Generating...' : 'Generate Video'}
+            <span className="ml-1 text-[var(--text-xs)] opacity-70">{isMac() ? '⌘' : 'Ctrl'}+Enter</span>
+          </Button>
 
           <JobTray />
         </div>
       </div>
 
-      {/* Result canvas */}
       <div className="flex-1 min-w-0 overflow-y-auto p-4 lg:p-6">
         {succeededJobs.length === 0 ? (
           <EmptyState
-            icon={History}
-            title={loading ? 'Loading models...' : 'No results yet'}
-            description={loading ? 'Fetching available models from providers' : 'Generate an image to see results here'}
+            icon={Film}
+            title={loading ? 'Loading models...' : 'No videos yet'}
+            description="Generate a video to see results here"
           />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {succeededJobs.flatMap((job) =>
               (job.blobUrls ?? []).map((_, i) => (
                 <ResultCard key={`${job.id}-${i}`} job={job} index={i} />

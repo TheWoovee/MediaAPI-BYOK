@@ -6,7 +6,8 @@ export default defineConfig({
     alias: { '@shared': resolve(import.meta.dirname!, 'shared') },
   },
   test: {
-    include: ['worker/**/*.test.ts', 'src/**/*.test.ts', 'shared/**/*.test.ts'],
-    environment: 'node',
+    include: ['worker/**/*.test.ts', 'src/**/*.test.ts', 'src/**/*.test.tsx', 'shared/**/*.test.ts'],
+    environment: 'jsdom',
+    setupFiles: ['./src/test-setup.ts'],
   },
 });

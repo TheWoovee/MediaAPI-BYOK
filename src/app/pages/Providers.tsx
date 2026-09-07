@@ -1,6 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Key, Plus, Eye, EyeOff, Trash2, Star, ExternalLink, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { providers } from '@shared/providers/registry';
 import type { Credential } from '@shared/types';
+import { listAdapters } from '../../providers/index';
+import * as api from '../../lib/api';
+import { Button } from '../../components/Button';
+import { Input } from '../../components/Input';
+import { Dialog } from '../../components/Dialog';
+import { useToast } from '../../components/Toast';
 
 export function ProvidersPage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -8,184 +15,201 @@ export function ProvidersPage() {
   const [label, setLabel] = useState('');
   const [secret, setSecret] = useState('');
   const [revealed, setRevealed] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const { toast } = useToast();
+
+  const adapters = listAdapters();
+  const adapterIds = new Set(adapters.map((a) => a.spec.id));
 
   const loadCredentials = useCallback(() => {
-    fetch('/studio/api/credentials')
-      .then((r) => r.json() as Promise<{ credentials: Credential[] }>)
+    api.fetchCredentials()
       .then((j) => setCredentials(j.credentials ?? []))
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    loadCredentials();
-  }, [loadCredentials]);
+  useEffect(() => { loadCredentials(); }, [loadCredentials]);
 
   async function handleAdd(providerId: string) {
-    if (!label || !secret) return;
-    setError(null);
-    const res = await fetch('/studio/api/credentials', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider_id: providerId, label, secret }),
-    });
-    if (!res.ok) {
-      setError('Failed to save credential');
-      return;
+    if (!label.trim() || !secret.trim()) return;
+    try {
+      await api.createCredential({ provider_id: providerId, label: label.trim(), secret: secret.trim() });
+      toast('Credential saved', 'success');
+      setAdding(null);
+      setLabel('');
+      setSecret('');
+      loadCredentials();
+    } catch (e) {
+      toast((e as Error).message || 'Failed to save credential', 'error');
     }
-    setAdding(null);
-    setLabel('');
-    setSecret('');
-    loadCredentials();
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/studio/api/credentials/${id}`, { method: 'DELETE' });
-    loadCredentials();
-  }
-
-  async function handleReveal(id: string) {
-    const res = await fetch(`/studio/api/credentials/${id}/reveal`, { method: 'POST' });
-    if (res.ok) {
-      const j = (await res.json()) as { secret: string };
-      setRevealed((prev) => ({ ...prev, [id]: j.secret }));
+    try {
+      await api.deleteCredential(id);
+      toast('Credential deleted', 'success');
+      setConfirmDelete(null);
+      loadCredentials();
+    } catch (e) {
+      toast((e as Error).message || 'Failed to delete', 'error');
     }
   }
 
+  async function handleSetDefault(id: string) {
+    try {
+      await api.setDefaultCredential(id);
+      loadCredentials();
+    } catch { /* noop */ }
+  }
+
+  async function handleReveal(id: string) {
+    if (revealed[id]) {
+      setRevealed((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      return;
+    }
+    try {
+      const result = await api.revealCredential(id);
+      setRevealed((prev) => ({ ...prev, [id]: result.secret }));
+    } catch {
+      toast('Failed to reveal', 'error');
+    }
+  }
+
+  async function handleTestKey(providerId: string) {
+    const adapter = adapters.find((a) => a.spec.id === providerId);
+    if (!adapter?.testCredential) return;
+    setTesting(providerId);
+    setTestResult(null);
+    try {
+      const cred = credentials.find((c) => c.provider_id === providerId && c.is_default) ?? credentials.find((c) => c.provider_id === providerId);
+      const { makeContext } = await import('../../providers/transport');
+      const ctx = makeContext(adapter.spec, { credentialId: cred?.id });
+      const result = await adapter.testCredential(ctx);
+      setTestResult(result);
+    } catch (e) {
+      setTestResult({ ok: false, message: (e as Error).message });
+    }
+    setTesting(null);
+  }
+
   return (
-    <div>
-      <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '16px' }}>Providers</h1>
-      {error && (
-        <div style={{ color: 'var(--color-danger)', marginBottom: '12px' }}>{error}</div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="p-4 lg:p-6 max-w-5xl mx-auto">
+      <h1 className="text-[var(--text-xl)] font-semibold mb-6">Providers</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {providers.map((p) => {
           const creds = credentials.filter((c) => c.provider_id === p.id);
+          const hasAdapter = adapterIds.has(p.id);
+
           return (
             <div
               key={p.id}
-              style={{
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: '16px',
-                backgroundColor: 'var(--color-bg-secondary)',
-              }}
+              className={`border rounded-[var(--radius-md)] bg-[var(--color-panel)] overflow-hidden transition-colors ${
+                hasAdapter ? 'border-[var(--color-border)]' : 'border-[var(--color-border-subtle)] opacity-70'
+              }`}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div>
-                  <span style={{ fontWeight: 600 }}>{p.label}</span>
-                  <span style={{ color: 'var(--color-text-muted)', fontSize: '12px', marginLeft: '8px' }}>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-[var(--text-md)]">{p.label}</span>
+                    {!hasAdapter && (
+                      <span className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+                        COMING SOON
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[var(--text-xs)] text-[var(--color-text-muted)]">
                     wave {p.wave} &middot; {p.transport}
                   </span>
                 </div>
-                <button
-                  onClick={() => {
-                    setAdding(adding === p.id ? null : p.id);
-                    setLabel('');
-                    setSecret('');
-                  }}
-                  style={{
-                    background: 'var(--color-primary)',
-                    color: 'var(--color-primary-text)',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '4px 12px',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                  }}
-                >
-                  {adding === p.id ? 'Cancel' : 'Add Key'}
-                </button>
-              </div>
-              {adding === p.id && (
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <input
-                    placeholder="Label"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '6px 10px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--color-bg)',
-                      color: 'var(--color-text)',
-                    }}
-                  />
-                  <input
-                    placeholder="API Key"
-                    type="password"
-                    value={secret}
-                    onChange={(e) => setSecret(e.target.value)}
-                    style={{
-                      flex: 2,
-                      padding: '6px 10px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--color-bg)',
-                      color: 'var(--color-text)',
-                    }}
-                  />
-                  <button
-                    onClick={() => handleAdd(p.id)}
-                    style={{
-                      background: 'var(--color-success)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '6px 16px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Save
-                  </button>
-                </div>
-              )}
-              {creds.length > 0 && (
-                <div style={{ fontSize: '13px' }}>
-                  {creds.map((cr) => (
-                    <div
-                      key={cr.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '4px 0',
-                        borderTop: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <span style={{ flex: 1 }}>
-                        {cr.label} &middot; ****{cr.last4}
-                        {cr.is_default && (
-                          <span style={{ color: 'var(--color-primary)', marginLeft: '4px', fontSize: '11px' }}>DEFAULT</span>
-                        )}
-                      </span>
-                      {revealed[cr.id] ? (
-                        <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--color-warning)' }}>
-                          {revealed[cr.id]}
-                        </code>
-                      ) : (
-                        <button
-                          onClick={() => handleReveal(cr.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: '12px' }}
-                        >
-                          Reveal
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDelete(cr.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        Delete
-                      </button>
+                <p className="text-[var(--text-xs)] text-[var(--color-text-muted)] mb-3">{p.auth.help}</p>
+
+                {creds.length > 0 && (
+                  <div className="flex flex-col gap-1.5 mb-3">
+                    {creds.map((cr) => (
+                      <div key={cr.id} className="flex items-center gap-2 text-[var(--text-sm)]">
+                        <Key size={12} className="text-[var(--color-text-muted)] shrink-0" />
+                        <span className="flex-1 truncate">
+                          {cr.label}
+                          <span className="text-[var(--color-text-muted)] ml-1">****{cr.last4}</span>
+                        </span>
+                        {cr.is_default && <Star size={12} className="text-[var(--color-accent)] shrink-0" />}
+                        <div className="flex gap-0.5">
+                          {!cr.is_default && (
+                            <button onClick={() => handleSetDefault(cr.id)} className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-subtle)] transition-colors" title="Set default">
+                              <Star size={12} />
+                            </button>
+                          )}
+                          <button onClick={() => handleReveal(cr.id)} className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors" title={revealed[cr.id] ? 'Hide' : 'Reveal'}>
+                            {revealed[cr.id] ? <EyeOff size={12} /> : <Eye size={12} />}
+                          </button>
+                          <button onClick={() => setConfirmDelete(cr.id)} className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-subtle)] transition-colors" title="Delete">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {Object.entries(revealed).filter(([id]) => creds.some((c) => c.id === id)).map(([id, secret]) => (
+                      <code key={id} className="text-[var(--text-xs)] bg-[var(--color-bg-tertiary)] rounded px-2 py-1 font-mono text-[var(--color-warning)] break-all">
+                        {secret}
+                      </code>
+                    ))}
+                  </div>
+                )}
+
+                {adding === p.id ? (
+                  <div className="flex flex-col gap-2">
+                    <Input placeholder="Label (e.g. 'Personal')" value={label} onChange={(e) => setLabel(e.target.value)} className="!h-8" />
+                    <Input placeholder="API Key" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} className="!h-8" />
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="primary" onClick={() => handleAdd(p.id)} disabled={!label.trim() || !secret.trim()}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setAdding(null); setLabel(''); setSecret(''); }}>Cancel</Button>
                     </div>
-                  ))}
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => { setAdding(p.id); setLabel(''); setSecret(''); }}>Add Key</Button>
+                    {hasAdapter && creds.length > 0 && adapters.find((a) => a.spec.id === p.id)?.testCredential && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        loading={testing === p.id}
+                        onClick={() => handleTestKey(p.id)}
+                        icon={testing === p.id ? <Loader2 size={14} className="animate-spin" /> : undefined}
+                      >
+                        Test
+                      </Button>
+                    )}
+                    {p.docsPath && (
+                      <Button size="sm" variant="ghost" icon={<ExternalLink size={14} />} onClick={() => {}}>Docs</Button>
+                    )}
+                  </div>
+                )}
+
+                {testing === null && testResult && (
+                  <div className={`mt-2 flex items-center gap-1.5 text-[var(--text-xs)] ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>
+                    {testResult.ok ? <Check size={12} /> : <AlertCircle size={12} />}
+                    {testResult.message ?? (testResult.ok ? 'Key is valid' : 'Key validation failed')}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
+
+      <Dialog
+        open={!!confirmDelete}
+        onOpenChange={() => setConfirmDelete(null)}
+        title="Delete Credential"
+        description="This will permanently delete this API key. Jobs using it will fail."
+      >
+        <div className="flex gap-2 justify-end mt-4">
+          <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+          <Button variant="danger" onClick={() => confirmDelete && handleDelete(confirmDelete)}>Delete</Button>
+        </div>
+      </Dialog>
     </div>
   );
 }
