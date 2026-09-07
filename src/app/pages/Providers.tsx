@@ -123,11 +123,6 @@ export function ProvidersPage() {
                     {hasAdapter ? 'Ready' : 'Coming soon'}
                   </span>
                 </div>
-                {!hasAdapter && (
-                  <span className="self-start mb-1 px-1.5 py-0.5 text-[9px] font-medium rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
-                    COMING SOON
-                  </span>
-                )}
                 <p className="text-[var(--text-xs)] text-[var(--color-text-muted)] mb-3">{p.auth.help}</p>
 
                 {creds.length > 0 && (
@@ -192,11 +187,9 @@ export function ProvidersPage() {
                         <Button size="sm" variant="ghost" icon={<ExternalLink size={14} />} onClick={() => {}}>Docs</Button>
                       )}
                     </div>
-                  ) : (
-                    <span className="inline-block text-[var(--text-xs)] text-[var(--color-text-muted)] italic">
-                      Coming soon
-                    </span>
-                  )}
+                  ) : p.docsPath ? (
+                    <Button size="sm" variant="ghost" icon={<ExternalLink size={14} />} onClick={() => window.open(p.docsPath, '_blank', 'noopener')}>Docs</Button>
+                  ) : null}
 
                   {testing === null && testResult && (
                     <div className={`mt-2 flex items-center gap-1.5 text-[var(--text-xs)] ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}>

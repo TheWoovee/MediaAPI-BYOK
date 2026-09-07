@@ -22,29 +22,24 @@ const HEALTH_ENDPOINTS: Record<ServerKind, string> = {
   swarmui: '/API/GetCurrentStatus',
 };
 
-const LAUNCH_COMMANDS: Record<ServerKind, { direct: string; relay: string; note?: string }> = {
-  comfyui: {
-    direct: 'python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header',
-    relay: 'python main.py --listen 127.0.0.1 --port 8188',
-  },
-  a1111: {
-    direct: './webui.sh --api --cors-allow-origins=*',
-    relay: './webui.sh --api --listen',
-  },
-  swarmui: {
-    direct: 'launch-linux.sh --launch_mode none --host 0.0.0.0',
-    relay: 'launch-linux.sh --launch_mode none',
-    note: 'API mode (--launch_mode none) enables headless API access',
-  },
-  'openai-compat': {
-    direct: 'http://localhost:PORT/v1',
-    relay: 'http://localhost:PORT/v1',
-    note: 'Replace PORT with your server\'s port (e.g. 11434 for Ollama, 8080 for LiteLLM)',
-  },
-};
+function getOrigin(): string {
+  return window.location.origin;
+}
 
-function getLaunchCommand(kind: ServerKind, mode: 'direct' | 'relay'): string {
-  return LAUNCH_COMMANDS[kind]?.[mode] ?? '';
+function getLaunchCommands(): Record<'comfyui' | 'a1111' | 'openai-compat', { direct: string; note?: string }> {
+  const origin = getOrigin();
+  return {
+    comfyui: {
+      direct: `python main.py --listen 127.0.0.1 --port 8188 --enable-cors-header ${origin}`,
+    },
+    a1111: {
+      direct: `./webui.sh --api --listen --cors-allow-origins=${origin}`,
+    },
+    'openai-compat': {
+      direct: 'http://localhost:PORT/v1',
+      note: 'Replace PORT with your server\'s port (e.g. 11434 for Ollama). Add as kind "OpenAI-compatible".',
+    },
+  };
 }
 
 export function LocalPage() {
@@ -55,7 +50,7 @@ export function LocalPage() {
   const [newLabel, setNewLabel] = useState('');
   const [newBaseUrl, setNewBaseUrl] = useState('http://localhost:8188');
   const [newMode, setNewMode] = useState<'direct' | 'relay'>('direct');
-  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const { toast } = useToast();
 
   const loadServers = useCallback(() => {
@@ -82,8 +77,18 @@ export function LocalPage() {
     return () => clearInterval(interval);
   }, [servers, checkHealth]);
 
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedCmd(key);
+    setTimeout(() => setCopiedCmd(null), 2000);
+  }
+
   async function handleAdd() {
     if (!newLabel.trim() || !newBaseUrl.trim()) return;
+    if (newMode === 'relay') {
+      try { const u = new URL(newBaseUrl); if (u.protocol !== 'https:') { toast('Relay mode requires an HTTPS URL (Cloudflare Tunnel)', 'error'); return; } } catch { /* invalid URL, let server reject */ }
+      if (/^(localhost|127\.|0\.|192\.168\.|10\.)/.test(new URL(newBaseUrl).hostname)) { toast('Relay mode requires a public tunnel URL, not localhost/LAN', 'error'); return; }
+    }
     try {
       await api.createLocalServer({
         kind: newKind,
@@ -109,8 +114,15 @@ export function LocalPage() {
     } catch { /* noop */ }
   }
 
-  const launchCmd = getLaunchCommand(newKind, newMode);
-  const launchNote = LAUNCH_COMMANDS[newKind]?.note;
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const origin = getOrigin();
+  const launchCommands = getLaunchCommands();
+
+  const dialogLaunchCmd = newMode === 'direct'
+    ? (newKind === 'comfyui' ? `python main.py --listen 127.0.0.1 --port 8188 --enable-cors-header ${origin}` :
+       newKind === 'a1111' ? `./webui.sh --api --listen --cors-allow-origins=${origin}` : '')
+    : (newKind === 'comfyui' ? 'python main.py --listen 127.0.0.1 --port 8188' :
+       newKind === 'a1111' ? './webui.sh --api --listen' : '');
 
   return (
     <div className="grid grid-cols-1 gap-6 p-4 lg:p-6 max-w-4xl mx-auto">
@@ -124,12 +136,14 @@ export function LocalPage() {
       <div className="flex flex-col gap-2 text-[var(--text-xs)]">
         <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
           <Info size={14} className="shrink-0 mt-0.5" />
-          <span><strong className="text-[var(--color-text-secondary)]">Chrome</strong> blocks localhost access by default. Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[10px]">chrome://flags/#allow-insecure-localhost</code></span>
+          <span><strong className="text-[var(--color-text-secondary)]">Chrome 142+</strong> shows a one-time &quot;Allow local network access&quot; prompt when connecting to localhost. Click Allow — the grant is remembered per site.</span>
         </div>
-        <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)]">
-          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <span><strong>Safari</strong> blocks mixed content. Use HTTPS for local servers or use Chrome/Firefox.</span>
-        </div>
+        {isSafari && (
+          <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)]">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+            <span><strong>Safari</strong> blocks HTTP localhost calls from an HTTPS page. Add servers in relay mode (Cloudflare Tunnel) or use Chrome/Firefox.</span>
+          </div>
+        )}
       </div>
 
       {servers.length === 0 ? (
@@ -137,28 +151,28 @@ export function LocalPage() {
           <EmptyState
             icon={Server}
             title="No local servers"
-            description="Connect ComfyUI, A1111/Forge, SwarmUI, or other local generation servers"
+            description="Connect ComfyUI, A1111/Forge, or other local generation servers"
             action={<Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddDialogOpen(true)}>Add Server</Button>}
           />
           <div className="w-full max-w-lg">
             <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Quick Start Commands</h3>
             <div className="flex flex-col gap-2">
-              {(['comfyui', 'a1111', 'swarmui', 'openai-compat'] as ServerKind[]).map((k) => (
+              {(['comfyui', 'a1111', 'openai-compat'] as const).map((k) => (
                 <div key={k} className="bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-2.5">
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-xs)] font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
-                      {k === 'comfyui' ? 'ComfyUI' : k === 'a1111' ? 'A1111/Forge' : k === 'openai-compat' ? 'OpenAI' : 'SwarmUI'}
+                      {k === 'comfyui' ? 'ComfyUI' : k === 'a1111' ? 'A1111/Forge' : 'OpenAI-compat'}
                     </span>
-                    <code className="text-[var(--text-xs)] font-mono text-[var(--color-text-muted)] flex-1 min-w-0 break-all">{LAUNCH_COMMANDS[k].direct}</code>
+                    <code className="text-[var(--text-xs)] font-mono text-[var(--color-text-muted)] flex-1 min-w-0 break-all">{launchCommands[k].direct}</code>
                     <button
-                      onClick={() => { navigator.clipboard.writeText(LAUNCH_COMMANDS[k].direct); toast('Copied', 'success'); }}
+                      onClick={() => copyToClipboard(launchCommands[k].direct, k)}
                       className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors shrink-0"
                     >
-                      <Copy size={12} />
+                      {copiedCmd === k ? <Check size={12} /> : <Copy size={12} />}
                     </button>
                   </div>
-                  {LAUNCH_COMMANDS[k].note && (
-                    <div className="text-[10px] text-[var(--color-text-muted)] mt-1 pl-[6.5rem]">{LAUNCH_COMMANDS[k].note}</div>
+                  {launchCommands[k].note && (
+                    <div className="text-[10px] text-[var(--color-text-muted)] mt-1 pl-[6.5rem]">{launchCommands[k].note}</div>
                   )}
                 </div>
               ))}
@@ -233,57 +247,55 @@ export function LocalPage() {
             <label className="text-[var(--text-sm)] font-medium text-[var(--color-text-secondary)]">Mode</label>
             <div className="flex gap-1.5">
               <button
-                onClick={() => setNewMode('direct')}
+                onClick={() => { setNewMode('direct'); setNewBaseUrl('http://localhost:8188'); }}
                 className={`flex-1 px-3 py-2 rounded-[var(--radius-sm)] text-[var(--text-sm)] transition-colors text-center ${
                   newMode === 'direct' ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]'
                 }`}
               >
                 <div className="font-medium">Direct</div>
-                <div className="text-[var(--text-xs)] opacity-80">Same PC (localhost)</div>
+                <div className="text-[var(--text-xs)] opacity-80">Browser connects to localhost on this PC</div>
               </button>
               <button
-                onClick={() => setNewMode('relay')}
+                onClick={() => { setNewMode('relay'); setNewBaseUrl('https://'); }}
                 className={`flex-1 px-3 py-2 rounded-[var(--radius-sm)] text-[var(--text-sm)] transition-colors text-center ${
                   newMode === 'relay' ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]'
                 }`}
               >
                 <div className="font-medium">Relay</div>
-                <div className="text-[var(--text-xs)] opacity-80">Via tunnel (anywhere)</div>
+                <div className="text-[var(--text-xs)] opacity-80">HTTPS tunnel (Cloudflare Tunnel, ngrok)</div>
               </button>
             </div>
           </div>
 
           <Input placeholder="Label" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
-          <Input placeholder="Base URL" value={newBaseUrl} onChange={(e) => setNewBaseUrl(e.target.value)} />
+          <Input placeholder={newMode === 'relay' ? 'Tunnel URL (https://...)' : 'Base URL'} value={newBaseUrl} onChange={(e) => setNewBaseUrl(e.target.value)} />
 
-          {launchCmd && (
+          {dialogLaunchCmd && (
             <div className="flex flex-col gap-1.5">
               <label className="text-[var(--text-sm)] font-medium text-[var(--color-text-secondary)]">Launch command</label>
               <div className="relative">
                 <code className="block bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3 text-[var(--text-xs)] font-mono text-[var(--color-text-secondary)] break-all pr-10">
-                  {launchCmd}
+                  {dialogLaunchCmd}
                 </code>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(launchCmd);
-                    setCopiedCmd(true);
-                    setTimeout(() => setCopiedCmd(false), 2000);
-                  }}
+                  onClick={() => copyToClipboard(dialogLaunchCmd, 'dialog')}
                   className="absolute top-2 right-2 p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] transition-colors"
                 >
-                  {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
+                  {copiedCmd === 'dialog' ? <Check size={14} /> : <Copy size={14} />}
                 </button>
               </div>
-              {launchNote && (
-                <div className="text-[var(--text-xs)] text-[var(--color-text-muted)]">{launchNote}</div>
-              )}
             </div>
           )}
 
           {newMode === 'direct' && (
-            <div className="flex flex-col gap-1.5 text-[var(--text-xs)] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3">
-              <div><strong className="text-[var(--color-text-secondary)]">Chrome:</strong> Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[10px]">chrome://flags/#allow-insecure-localhost</code> for local access.</div>
-              <div><strong className="text-[var(--color-text-secondary)]">Safari:</strong> Blocks mixed content from HTTPS pages. Use relay mode or switch to Chrome/Firefox.</div>
+            <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3">
+              Chrome 142+ shows a one-time local network access prompt — click Allow. Safari blocks localhost from HTTPS; use relay mode instead.
+            </div>
+          )}
+
+          {newMode === 'relay' && (
+            <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3">
+              Run <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded">cloudflared tunnel run</code> to expose your local server over HTTPS. Requires a public URL — localhost and LAN IPs are rejected.
             </div>
           )}
 

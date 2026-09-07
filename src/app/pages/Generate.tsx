@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Play, Loader2, History, Columns } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Play, Loader2, History, Columns, Key } from 'lucide-react';
 import type { Capability, MediaInput, ModelSpec } from '@shared/types';
 import { useModelsStore } from '../../stores/models';
 import { useJobsStore, type Job } from '../../jobs/runner';
@@ -35,6 +36,7 @@ export function GeneratePage() {
   const [compareSelection, setCompareSelection] = useState<{ job: Job; index: number }[]>([]);
   const [showCompare, setShowCompare] = useState(false);
 
+  const navigate = useNavigate();
   const submit = useJobsStore((s) => s.submit);
   const jobs = useJobsStore((s) => s.jobs);
   const allJobs = useMemo(() => [...jobs.values()].sort((a, b) => b.created_at - a.created_at), [jobs]);
@@ -133,8 +135,11 @@ export function GeneratePage() {
               selectedModel={selectedModel}
               onSelect={(p, m) => { setSelectedProvider(p); setSelectedModel(m); setParams({}); }}
             />
+            {model?.description && (
+              <p className="text-[var(--text-xs)] text-[var(--color-text-muted)] mt-1.5">{model.description}</p>
+            )}
             {model?.pricing && (
-              <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] mt-1.5">
+              <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] mt-1">
                 ~{model.pricing.amount} {model.pricing.currency}/{model.pricing.unit}
               </div>
             )}
@@ -142,7 +147,6 @@ export function GeneratePage() {
 
           {model && (
             <section>
-              <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Prompt</h3>
               <SchemaForm
                 params={model.params}
                 values={params}
@@ -154,7 +158,7 @@ export function GeneratePage() {
           )}
 
           <section>
-            <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Advanced</h3>
+            <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Settings</h3>
             <div className="flex items-center gap-2">
               <label className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">Batch</label>
               <div className="inline-flex rounded-[var(--radius-sm)] border border-[var(--color-border)] overflow-hidden">
@@ -216,11 +220,26 @@ export function GeneratePage() {
           </div>
         )}
         {succeededJobs.length === 0 ? (
-          <EmptyState
-            icon={History}
-            title={loading ? 'Loading models...' : 'No results yet'}
-            description={loading ? 'Fetching available models from providers' : 'Generate an image to see results here'}
-          />
+          loading ? (
+            <EmptyState
+              icon={History}
+              title="Loading models..."
+              description="Fetching available models from providers"
+            />
+          ) : models.length === 0 ? (
+            <EmptyState
+              icon={Key}
+              title="No models available"
+              description="Add API keys in Providers to start generating"
+              action={<Button variant="primary" size="sm" icon={<Key size={14} />} onClick={() => navigate('/providers')}>Add API Keys</Button>}
+            />
+          ) : (
+            <EmptyState
+              icon={History}
+              title="No results yet"
+              description={`Pick a model and press ${isMac() ? '⌘' : 'Ctrl'}+Enter to generate`}
+            />
+          )
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {succeededJobs.flatMap((job) =>

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 const BASE_URL = 'http://localhost:4173/studio';
 
@@ -66,4 +67,22 @@ test('Generate page has a Generate button and prompt input', async ({ page }) =>
 
   const runButton = page.locator('button').filter({ hasText: /generate/i }).first();
   await expect(runButton).toBeVisible({ timeout: 5000 });
+});
+
+test('Generate page has no serious axe-core violations', async ({ page }) => {
+  await page.goto(`${BASE_URL}/generate`);
+  await waitForApp(page);
+  await page.waitForTimeout(500);
+  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze();
+  const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious, 'No serious/critical a11y violations on Generate').toEqual([]);
+});
+
+test('Providers page has no serious axe-core violations', async ({ page }) => {
+  await page.goto(`${BASE_URL}/providers`);
+  await waitForApp(page);
+  await page.waitForTimeout(500);
+  const results = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze();
+  const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious, 'No serious/critical a11y violations on Providers').toEqual([]);
 });

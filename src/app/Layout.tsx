@@ -84,6 +84,7 @@ export function Layout() {
               )}
               <button
                 onClick={toggleSidebar}
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 className="p-1.5 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
               >
                 {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
@@ -141,6 +142,7 @@ export function Layout() {
                 </span>
                 <button
                   onClick={() => setMoreOpen(false)}
+                  aria-label="Close menu"
                   className="p-1.5 rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
                 >
                   <X size={18} />
