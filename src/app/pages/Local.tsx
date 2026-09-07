@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Server, Plus, Trash2, Circle, Copy, AlertTriangle, Check } from 'lucide-react';
+import { Server, Plus, Trash2, Circle, Copy, AlertTriangle, Check, Info } from 'lucide-react';
 import type { LocalServer } from '@shared/types';
 import * as api from '../../lib/api';
 import { Button } from '../../components/Button';
@@ -22,7 +22,7 @@ const HEALTH_ENDPOINTS: Record<ServerKind, string> = {
   swarmui: '/API/GetCurrentStatus',
 };
 
-const LAUNCH_COMMANDS: Record<ServerKind, { direct: string; relay: string }> = {
+const LAUNCH_COMMANDS: Record<ServerKind, { direct: string; relay: string; note?: string }> = {
   comfyui: {
     direct: 'python main.py --listen 0.0.0.0 --port 8188 --enable-cors-header',
     relay: 'python main.py --listen 127.0.0.1 --port 8188',
@@ -32,12 +32,14 @@ const LAUNCH_COMMANDS: Record<ServerKind, { direct: string; relay: string }> = {
     relay: './webui.sh --api --listen',
   },
   swarmui: {
-    direct: 'launch-linux.sh --launch_mode none',
+    direct: 'launch-linux.sh --launch_mode none --host 0.0.0.0',
     relay: 'launch-linux.sh --launch_mode none',
+    note: 'API mode (--launch_mode none) enables headless API access',
   },
   'openai-compat': {
-    direct: '# Base URL: http://localhost:8080/v1',
-    relay: '# Base URL: http://localhost:8080/v1',
+    direct: 'http://localhost:PORT/v1',
+    relay: 'http://localhost:PORT/v1',
+    note: 'Replace PORT with your server\'s port (e.g. 11434 for Ollama, 8080 for LiteLLM)',
   },
 };
 
@@ -107,29 +109,27 @@ export function LocalPage() {
     } catch { /* noop */ }
   }
 
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
   const launchCmd = getLaunchCommand(newKind, newMode);
+  const launchNote = LAUNCH_COMMANDS[newKind]?.note;
 
   return (
-    <div className="p-4 lg:p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="grid grid-cols-1 gap-6 p-4 lg:p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between">
         <h1 className="text-[var(--text-xl)] font-semibold">Local Servers</h1>
         <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setAddDialogOpen(true)}>
           Add Server
         </Button>
       </div>
 
-      <div className="flex flex-col gap-2 mb-4 text-[var(--text-xs)]">
-        <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <span><strong>Chrome</strong> blocks localhost access by default. Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[var(--text-xs)]">chrome://flags/#allow-insecure-localhost</code> or allow the prompt when it appears.</span>
+      <div className="flex flex-col gap-2 text-[var(--text-xs)]">
+        <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+          <Info size={14} className="shrink-0 mt-0.5" />
+          <span><strong className="text-[var(--color-text-secondary)]">Chrome</strong> blocks localhost access by default. Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[10px]">chrome://flags/#allow-insecure-localhost</code></span>
         </div>
-        {isSafari && (
-          <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)]">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-            <span><strong>Safari</strong> blocks mixed content (HTTPS → HTTP). Use relay mode or switch to Chrome/Firefox for direct local access.</span>
-          </div>
-        )}
+        <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[var(--color-warning-subtle)] text-[var(--color-warning)]">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span><strong>Safari</strong> blocks mixed content. Use HTTPS for local servers or use Chrome/Firefox.</span>
+        </div>
       </div>
 
       {servers.length === 0 ? (
@@ -144,17 +144,22 @@ export function LocalPage() {
             <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Quick Start Commands</h3>
             <div className="flex flex-col gap-2">
               {(['comfyui', 'a1111', 'swarmui', 'openai-compat'] as ServerKind[]).map((k) => (
-                <div key={k} className="flex items-center gap-2 bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-2.5">
-                  <span className="text-[var(--text-xs)] font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
-                    {k === 'comfyui' ? 'ComfyUI' : k === 'a1111' ? 'A1111/Forge' : k === 'openai-compat' ? 'OpenAI' : 'SwarmUI'}
-                  </span>
-                  <code className="text-[var(--text-xs)] font-mono text-[var(--color-text-muted)] flex-1 truncate">{LAUNCH_COMMANDS[k].direct}</code>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(LAUNCH_COMMANDS[k].direct); toast('Copied', 'success'); }}
-                    className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors shrink-0"
-                  >
-                    <Copy size={12} />
-                  </button>
+                <div key={k} className="bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-xs)] font-medium text-[var(--color-text-secondary)] w-24 shrink-0">
+                      {k === 'comfyui' ? 'ComfyUI' : k === 'a1111' ? 'A1111/Forge' : k === 'openai-compat' ? 'OpenAI' : 'SwarmUI'}
+                    </span>
+                    <code className="text-[var(--text-xs)] font-mono text-[var(--color-text-muted)] flex-1 min-w-0 break-all">{LAUNCH_COMMANDS[k].direct}</code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(LAUNCH_COMMANDS[k].direct); toast('Copied', 'success'); }}
+                      className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors shrink-0"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  </div>
+                  {LAUNCH_COMMANDS[k].note && (
+                    <div className="text-[10px] text-[var(--color-text-muted)] mt-1 pl-[6.5rem]">{LAUNCH_COMMANDS[k].note}</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -269,12 +274,16 @@ export function LocalPage() {
                   {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
                 </button>
               </div>
+              {launchNote && (
+                <div className="text-[var(--text-xs)] text-[var(--color-text-muted)]">{launchNote}</div>
+              )}
             </div>
           )}
 
           {newMode === 'direct' && (
-            <div className="text-[var(--text-xs)] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3">
-              Chrome 142+ will show a Local Network Access permission prompt when connecting. Allow it once. Firefox works without a prompt. Safari blocks localhost from HTTPS — use relay mode instead.
+            <div className="flex flex-col gap-1.5 text-[var(--text-xs)] text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] rounded-[var(--radius-sm)] p-3">
+              <div><strong className="text-[var(--color-text-secondary)]">Chrome:</strong> Enable <code className="px-1 py-0.5 bg-[var(--color-bg-secondary)] rounded text-[10px]">chrome://flags/#allow-insecure-localhost</code> for local access.</div>
+              <div><strong className="text-[var(--color-text-secondary)]">Safari:</strong> Blocks mixed content from HTTPS pages. Use relay mode or switch to Chrome/Firefox.</div>
             </div>
           )}
 
