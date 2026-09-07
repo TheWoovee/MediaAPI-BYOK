@@ -154,41 +154,41 @@ export function GeneratePage() {
           )}
 
           <section>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">Batch</label>
-                <div className="flex gap-0.5">
-                  {[1, 2, 4].map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setBatchCount(n)}
-                      className={`px-2.5 py-1 rounded-[var(--radius-sm)] text-[var(--text-sm)] font-medium transition-colors ${
-                        batchCount === n
-                          ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
-                          : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
+            <h3 className="text-[var(--text-xs)] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">Advanced</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-[var(--text-sm)] text-[var(--color-text-secondary)]">Batch</label>
+              <div className="inline-flex rounded-[var(--radius-sm)] border border-[var(--color-border)] overflow-hidden">
+                {[1, 2, 4].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setBatchCount(n)}
+                    className={`px-3 py-1 text-[var(--text-sm)] font-medium transition-colors ${
+                      batchCount === n
+                        ? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+                        : 'bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
               </div>
-              <Button
-                variant="primary"
-                size="lg"
-                className="flex-1"
-                onClick={handleSubmit}
-                loading={isRunning}
-                disabled={!model || loading}
-                icon={isRunning ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
-              >
-                {isRunning ? 'Running...' : 'Generate'}
-                <kbd className="ml-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[var(--text-xs)] font-normal">
-                  {isMac() ? '⌘' : 'Ctrl'}⏎
-                </kbd>
-              </Button>
             </div>
           </section>
+
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full"
+            onClick={handleSubmit}
+            loading={isRunning}
+            disabled={!model || loading}
+            icon={isRunning ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
+          >
+            {isRunning ? 'Running...' : 'Generate'}
+            <kbd className="ml-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[var(--text-xs)] font-normal">
+              {isMac() ? '⌘' : 'Ctrl'}⏎
+            </kbd>
+          </Button>
 
           <JobTray />
         </div>
