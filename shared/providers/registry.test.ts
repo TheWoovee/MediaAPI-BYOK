@@ -9,6 +9,14 @@ const EXPECTED_IDS = [
   'openai-compat', 'comfyui', 'a1111', 'swarmui',
 ];
 
+const URL_OUTPUT_PROVIDERS = [
+  'xai', 'fal', 'openai', 'replicate', 'bfl', 'runpod',
+  'ideogram', 'recraft', 'leonardo', 'hf-space',
+  'byteplus-ark', 'kling', 'minimax', 'runway', 'luma',
+  'wavespeed', 'together', 'fireworks', 'hf-inference',
+  'google',
+];
+
 describe('provider registry', () => {
   it('contains all expected providers', () => {
     const ids = getAllProviderIds();
@@ -26,7 +34,7 @@ describe('provider registry', () => {
     for (const p of providers) {
       expect(p.label.length, `${p.id} label`).toBeGreaterThan(0);
       expect([1, 2, 3], `${p.id} wave`).toContain(p.wave);
-      expect(['proxy', 'direct'], `${p.id} transport`).toContain(p.transport);
+      expect(['proxy', 'direct', 'local'], `${p.id} transport`).toContain(p.transport);
       expect(p.auth.header.length, `${p.id} auth.header`).toBeGreaterThan(0);
       expect(p.auth.help.length, `${p.id} auth.help`).toBeGreaterThan(0);
       expect(Array.isArray(p.hosts), `${p.id} hosts`).toBe(true);
@@ -44,6 +52,14 @@ describe('provider registry', () => {
     }
   });
 
+  it('local providers have empty hosts', () => {
+    for (const p of providers) {
+      if (p.transport === 'local') {
+        expect(p.hosts.length, `${p.id} local should have empty hosts`).toBe(0);
+      }
+    }
+  });
+
   it('auth config uses valid schemes', () => {
     const validSchemes = ['Bearer', 'Key', 'raw', 'jwt-hs256', undefined];
     for (const p of providers) {
@@ -56,5 +72,31 @@ describe('provider registry', () => {
     expect(xai).toBeDefined();
     expect(xai!.label).toBe('xAI Grok Imagine');
     expect(getProvider('nonexistent')).toBeUndefined();
+  });
+
+  it('openai-compat, comfyui, a1111, swarmui use local transport', () => {
+    const localIds = ['openai-compat', 'comfyui', 'a1111', 'swarmui'];
+    for (const id of localIds) {
+      const p = getProvider(id);
+      expect(p, `${id} should exist`).toBeDefined();
+      expect(p!.transport, `${id} should be local`).toBe('local');
+    }
+  });
+
+  it('URL-output providers have non-empty outputHosts', () => {
+    for (const id of URL_OUTPUT_PROVIDERS) {
+      const p = getProvider(id);
+      expect(p, `${id} should exist`).toBeDefined();
+      expect(p!.outputHosts.length, `${id} should have outputHosts`).toBeGreaterThan(0);
+    }
+  });
+
+  it('base64/bytes providers have empty outputHosts with intent', () => {
+    const bytesProviders = ['cf-workers-ai', 'venice', 'stability'];
+    for (const id of bytesProviders) {
+      const p = getProvider(id);
+      expect(p, `${id} should exist`).toBeDefined();
+      expect(p!.outputHosts.length, `${id} returns bytes, should have empty outputHosts`).toBe(0);
+    }
   });
 });

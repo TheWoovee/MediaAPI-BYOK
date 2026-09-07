@@ -3,6 +3,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
@@ -41,7 +42,8 @@
   },
   "vars": {
     "ACCESS_TEAM_DOMAIN": "https://thewoovee.cloudflareaccess.com",
-    "ACCESS_AUD": "<aud>"
+    "ACCESS_AUD": "<aud>",
+    "ENVIRONMENT": "production"
   },
   "observability": {
     "enabled": true

@@ -5,7 +5,7 @@ import { proxyApp } from './proxy';
 import { credentialsApp } from './routes/credentials';
 import { localServersApp } from './routes/local-servers';
 import { jobsApp } from './routes/jobs';
-import { uploadsApp, cleanExpiredUploads } from './routes/uploads';
+import { uploadsApp, cleanExpiredUploads, TMP_PATH } from './routes/uploads';
 import { securityHeaders } from './security';
 import { providers } from '@shared/providers/registry';
 import type { WorkerEnv } from './types';
@@ -16,27 +16,8 @@ app.use('*', securityHeaders);
 
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }));
 
-app.get('/api/tmp/:id', async (c) => {
-  const id = c.req.param('id');
-  const row = await c.env.DB.prepare('SELECT r2_key, mime, expires_at FROM temp_uploads WHERE id=?')
-    .bind(id)
-    .first<{ r2_key: string; mime: string; expires_at: number }>();
-
-  if (!row || row.expires_at < Date.now()) return c.json({ error: 'not found' }, 404);
-
-  const obj = await c.env.TMP.get(row.r2_key);
-  if (!obj) return c.json({ error: 'not found' }, 404);
-
-  return new Response(obj.body, {
-    headers: {
-      'content-type': row.mime,
-      'cache-control': 'private, max-age=3600',
-    },
-  });
-});
-
 app.use('/api/*', async (c, next) => {
-  if (c.req.path === `${BASE_PATH}/api/health` || c.req.path.startsWith(`${BASE_PATH}/api/tmp/`)) {
+  if (c.req.path === `${BASE_PATH}/api/health` || c.req.path.startsWith(`${BASE_PATH}${TMP_PATH}`)) {
     return next();
   }
   const id = await identify(c.req.raw, c.env);

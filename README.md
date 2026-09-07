@@ -27,7 +27,10 @@ npm run dev
 ```
 
 The dev server runs at `http://localhost:5173/studio/`. `DEV_TRUST_EMAIL` in `.dev.vars`
-bypasses Access JWT verification on localhost.
+bypasses Access JWT verification on localhost (only when `ENVIRONMENT=development`).
+
+See `.dev.vars.example` for the required variables including KEK rotation support
+(`KEK` is the current key; set `KEK_VERSION` and `KEK_V<n>` for rotation).
 
 ## Commands
 

@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
 import { identify } from './access';
 
-const env = { ACCESS_TEAM_DOMAIN: 'https://thewoovee.cloudflareaccess.com', ACCESS_AUD: 'aud-123' };
+const env = {
+  ACCESS_TEAM_DOMAIN: 'https://thewoovee.cloudflareaccess.com',
+  ACCESS_AUD: 'aud-123',
+  ENVIRONMENT: 'development' as string | undefined,
+};
 
 async function setup() {
   const { publicKey, privateKey } = await generateKeyPair('RS256');
@@ -44,16 +48,32 @@ describe('Access JWT verification', () => {
     expect(await identify(req(await sign(other.privateKey, { email: 'a@b.c' })), env, getKey)).toBeNull();
   });
 
-  it('refuses requests without a token and never trusts DEV_TRUST_EMAIL off localhost', async () => {
+  it('trusts DEV_TRUST_EMAIL only when ENVIRONMENT=development AND hostname is localhost', async () => {
     const { getKey } = await setup();
-    expect(await identify(req(), env, getKey)).toBeNull();
-    expect(await identify(req(undefined, 'www.thewoovee.com'), { ...env, DEV_TRUST_EMAIL: 'dev@x' }, getKey)).toBeNull();
-    expect(await identify(req(undefined, 'localhost'), { ...env, DEV_TRUST_EMAIL: 'dev@x' }, getKey)).toEqual({
-      email: 'dev@x',
-    });
-    // also trusts Host header (wrangler dev rewrites URL hostname but keeps the Host header)
+    const devEnv = { ...env, DEV_TRUST_EMAIL: 'dev@x', ENVIRONMENT: 'development' as string | undefined };
+
+    // no token, non-localhost → null
+    expect(await identify(req(), devEnv, getKey)).toBeNull();
+    expect(await identify(req(undefined, 'www.thewoovee.com'), devEnv, getKey)).toBeNull();
+
+    // localhost with ENVIRONMENT=development → trusted
+    expect(await identify(req(undefined, 'localhost'), devEnv, getKey)).toEqual({ email: 'dev@x' });
+
+    // Host header override to localhost
     expect(
-      await identify(req(undefined, 'www.thewoovee.com', 'localhost:8787'), { ...env, DEV_TRUST_EMAIL: 'dev@x' }, getKey),
+      await identify(req(undefined, 'www.thewoovee.com', 'localhost:8787'), devEnv, getKey),
     ).toEqual({ email: 'dev@x' });
+  });
+
+  it('ignores DEV_TRUST_EMAIL when ENVIRONMENT=production even on localhost', async () => {
+    const { getKey } = await setup();
+    const prodEnv = { ...env, DEV_TRUST_EMAIL: 'dev@x', ENVIRONMENT: 'production' };
+    expect(await identify(req(undefined, 'localhost'), prodEnv, getKey)).toBeNull();
+  });
+
+  it('ignores DEV_TRUST_EMAIL when ENVIRONMENT is undefined', async () => {
+    const { getKey } = await setup();
+    const noEnv = { ...env, DEV_TRUST_EMAIL: 'dev@x', ENVIRONMENT: undefined };
+    expect(await identify(req(undefined, 'localhost'), noEnv, getKey)).toBeNull();
   });
 });

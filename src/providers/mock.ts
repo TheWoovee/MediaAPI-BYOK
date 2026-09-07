@@ -1,4 +1,4 @@
-import type { ProviderAdapter, ProviderSpec, ModelSpec, GenerateRequest, JobHandle, JobStatus, AdapterContext } from '@shared/types';
+import type { ProviderAdapter, ProviderSpec, ModelSpec, GenerateRequest, JobHandle, JobStatus, AdapterContext, Capability } from '@shared/types';
 
 const mockSpec: ProviderSpec = {
   id: 'mock',
@@ -14,10 +14,12 @@ const mockSpec: ProviderSpec = {
 
 export const mockAdapter: ProviderAdapter = {
   spec: mockSpec,
+  capabilities: ['text2image'] as Capability[],
   async listModels(_ctx: AdapterContext): Promise<ModelSpec[]> {
     return [
       {
         id: 'mock-image-1',
+        provider_id: 'mock',
         label: 'Mock Image v1',
         capabilities: ['text2image'],
         params: {
@@ -29,7 +31,7 @@ export const mockAdapter: ProviderAdapter = {
     ];
   },
   async submit(_req: GenerateRequest, _ctx: AdapterContext): Promise<JobHandle> {
-    return { provider_id: 'mock', provider_ref: { id: crypto.randomUUID() } };
+    return { provider_id: 'mock', model_id: 'mock-image-1', capability: 'text2image', provider_ref: { id: crypto.randomUUID() }, submitted_at: Date.now() };
   },
   async poll(_h: JobHandle, _ctx: AdapterContext): Promise<JobStatus> {
     const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

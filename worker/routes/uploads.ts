@@ -1,13 +1,22 @@
 import { Hono } from 'hono';
+import { BASE_PATH } from '@shared/config';
 import type { WorkerEnv } from '../types';
 
 const UPLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ALLOWED_MIME_RE = /^(image|video)\//;
+
+export const TMP_PATH = '/api/tmp/';
 
 export const uploadsApp = new Hono<{ Bindings: WorkerEnv }>();
 
 uploadsApp.post('/uploads', async (c) => {
   const email = c.get('email' as never) as string;
   const contentType = c.req.header('content-type') ?? 'application/octet-stream';
+
+  if (!ALLOWED_MIME_RE.test(contentType)) {
+    return c.json({ error: 'only image/* and video/* content types are accepted' }, 400);
+  }
+
   const body = await c.req.arrayBuffer();
   if (body.byteLength === 0) return c.json({ error: 'empty body' }, 400);
   if (body.byteLength > 50 * 1024 * 1024) return c.json({ error: 'file too large (50MB max)' }, 400);
@@ -26,9 +35,8 @@ uploadsApp.post('/uploads', async (c) => {
     .bind(id, email, r2Key, contentType, body.byteLength, expiresAt)
     .run();
 
-  const host = c.req.header('host') ?? 'www.thewoovee.com';
-  const proto = host.includes('localhost') ? 'http' : 'https';
-  return c.json({ id, url: `${proto}://${host}/studio/api/tmp/${id}`, expires_at: expiresAt }, 201);
+  const origin = new URL(c.req.url).origin;
+  return c.json({ id, url: `${origin}${BASE_PATH}${TMP_PATH}${id}`, expires_at: expiresAt }, 201);
 });
 
 uploadsApp.get('/tmp/:id', async (c) => {

@@ -2,6 +2,16 @@ const te = new TextEncoder();
 const b64d = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const buf = (u: Uint8Array): ArrayBuffer => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
 
+export function currentKekVersion(env: { KEK_VERSION?: string }): number {
+  return Number(env.KEK_VERSION ?? '1');
+}
+
+export function resolveKekString(env: { KEK: string; KEK_VERSION?: string; [key: string]: unknown }, version?: number): string {
+  const v = version ?? currentKekVersion(env);
+  const versioned = env[`KEK_V${v}`];
+  return typeof versioned === 'string' ? versioned : env.KEK;
+}
+
 export async function importKek(b64: string): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', buf(b64d(b64)), 'AES-GCM', false, ['encrypt', 'decrypt']);
 }

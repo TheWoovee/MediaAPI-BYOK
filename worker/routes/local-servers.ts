@@ -1,6 +1,33 @@
 import { Hono } from 'hono';
 import type { WorkerEnv } from '../types';
-import { importKek, unwrapDek, seal, open } from '../crypto';
+import { importKek, unwrapDek, seal, open, resolveKekString } from '../crypto';
+
+const FORBIDDEN_HOSTNAME_RE = /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|\[::1\])$/i;
+const FORBIDDEN_SUFFIX_RE = /\.(local|internal)$/i;
+
+function isIPLiteral(hostname: string): boolean {
+  if (hostname.startsWith('[')) return true;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+}
+
+function isForbiddenHost(hostname: string): boolean {
+  if (FORBIDDEN_HOSTNAME_RE.test(hostname)) return true;
+  if (FORBIDDEN_SUFFIX_RE.test(hostname)) return true;
+  if (isIPLiteral(hostname)) return true;
+  return false;
+}
+
+function validateRelayUrl(urlStr: string): { url: URL; error?: string } | { url?: undefined; error: string } {
+  let url: URL;
+  try {
+    url = new URL(urlStr);
+  } catch {
+    return { error: 'invalid base_url' };
+  }
+  if (url.protocol !== 'https:') return { error: 'relay base_url must be https' };
+  if (isForbiddenHost(url.hostname)) return { error: 'base_url hostname is not allowed' };
+  return { url };
+}
 
 export const localServersApp = new Hono<{ Bindings: WorkerEnv }>();
 
@@ -22,12 +49,8 @@ localServersApp.post('/local-servers', async (c) => {
     return c.json({ error: 'kind, label, base_url, and mode are required' }, 400);
   }
   if (body.mode === 'relay') {
-    try {
-      const u = new URL(body.base_url);
-      if (u.protocol !== 'https:') return c.json({ error: 'relay base_url must be https' }, 400);
-    } catch {
-      return c.json({ error: 'invalid base_url' }, 400);
-    }
+    const v = validateRelayUrl(body.base_url);
+    if (v.error) return c.json({ error: v.error }, 400);
   }
 
   const id = crypto.randomUUID();
@@ -36,12 +59,12 @@ localServersApp.post('/local-servers', async (c) => {
   let authIv: Uint8Array | null = null;
 
   if (body.auth) {
-    const kek = await importKek(c.env.KEK);
-    const user = await c.env.DB.prepare('SELECT wrapped_dek, dek_iv FROM users WHERE email=?')
+    const user = await c.env.DB.prepare('SELECT wrapped_dek, dek_iv, kek_version FROM users WHERE email=?')
       .bind(email)
-      .first<{ wrapped_dek: ArrayBuffer; dek_iv: ArrayBuffer }>();
+      .first<{ wrapped_dek: ArrayBuffer; dek_iv: ArrayBuffer; kek_version: number }>();
     if (!user) return c.json({ error: 'no user key; add a credential first' }, 400);
-    const dek = await unwrapDek(kek, new Uint8Array(user.wrapped_dek), new Uint8Array(user.dek_iv), email);
+    const userKek = await importKek(resolveKekString(c.env, user.kek_version));
+    const dek = await unwrapDek(userKek, new Uint8Array(user.wrapped_dek), new Uint8Array(user.dek_iv), email);
     const s = await seal(dek, body.auth, `${email}|local|${id}`);
     authCiphertext = s.ciphertext;
     authIv = s.iv;
@@ -67,12 +90,8 @@ localServersApp.patch('/local-servers/:id', async (c) => {
   if (!existing) return c.json({ error: 'not found' }, 404);
 
   if (body.base_url && existing.mode === 'relay') {
-    try {
-      const u = new URL(body.base_url);
-      if (u.protocol !== 'https:') return c.json({ error: 'relay base_url must be https' }, 400);
-    } catch {
-      return c.json({ error: 'invalid base_url' }, 400);
-    }
+    const v = validateRelayUrl(body.base_url);
+    if (v.error) return c.json({ error: v.error }, 400);
   }
 
   const updates: string[] = [];
@@ -120,29 +139,31 @@ localServersApp.all('/local/:serverId/*', async (c) => {
   if (!server) return c.json({ error: 'server not found' }, 404);
   if (server.mode !== 'relay') return c.json({ error: 'direct servers are called from the browser' }, 400);
 
-  try {
-    const u = new URL(server.base_url);
-    if (u.protocol !== 'https:') return c.json({ error: 'relay requires https' }, 400);
-  } catch {
-    return c.json({ error: 'invalid base_url' }, 400);
-  }
+  const baseValidation = validateRelayUrl(server.base_url);
+  if (baseValidation.error) return c.json({ error: baseValidation.error }, 400);
 
   const rest = c.req.path.replace(new RegExp(`^.*/local/${serverId}/`), '');
   const target = new URL(`${server.base_url.replace(/\/$/, '')}/${rest}${new URL(c.req.url).search}`);
 
+  if (target.origin !== baseValidation.url!.origin) {
+    return c.json({ error: 'target origin does not match base_url' }, 400);
+  }
+
   const headers = new Headers();
   for (const [k, v] of c.req.raw.headers.entries()) {
     const lower = k.toLowerCase();
-    if (lower === 'content-type' || lower === 'accept') headers.set(k, v);
+    if (lower === 'content-type' || lower === 'accept' || lower === 'range' || lower === 'content-length') {
+      headers.set(k, v);
+    }
   }
 
   if (server.auth_ciphertext && server.auth_iv) {
-    const kek = await importKek(c.env.KEK);
-    const user = await c.env.DB.prepare('SELECT wrapped_dek, dek_iv FROM users WHERE email=?')
+    const user = await c.env.DB.prepare('SELECT wrapped_dek, dek_iv, kek_version FROM users WHERE email=?')
       .bind(email)
-      .first<{ wrapped_dek: ArrayBuffer; dek_iv: ArrayBuffer }>();
+      .first<{ wrapped_dek: ArrayBuffer; dek_iv: ArrayBuffer; kek_version: number }>();
     if (user) {
-      const dek = await unwrapDek(kek, new Uint8Array(user.wrapped_dek), new Uint8Array(user.dek_iv), email);
+      const userKek = await importKek(resolveKekString(c.env, user.kek_version));
+      const dek = await unwrapDek(userKek, new Uint8Array(user.wrapped_dek), new Uint8Array(user.dek_iv), email);
       const authJson = await open(
         dek,
         new Uint8Array(server.auth_ciphertext),
