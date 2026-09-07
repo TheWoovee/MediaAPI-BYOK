@@ -54,15 +54,10 @@ Later (Phase 2), for your PC's ComfyUI tunnel:
 |---|------------------|--------|--------|
 | D | ComfyUI tunnel | `comfy.thewoovee.com` | **Service Auth** · Include: Service Token `studio-relay` (create under Access controls → Service credentials → Service tokens; copy the Client ID and Secret once; they are saved encrypted in the app) |
 
-## 5. Storage and secrets **(script)**
-From a machine with `wrangler` logged in (`npx wrangler login`), or let CI do it:
-```bash
-npx wrangler d1 create mediaapi-byok            # paste database_id into wrangler.jsonc
-npx wrangler r2 bucket create mediaapi-byok-tmp
-openssl rand -base64 32                         # this is the KEK; store it in your password manager
-npx wrangler secret put KEK                     # paste the value when prompted
-```
-Losing the KEK makes every stored provider key unrecoverable (users would simply re-enter them). Nothing else is lost.
+## 5. Storage (dashboard, no CLI needed)
+1. Cloudflare dashboard → **Storage & Databases → D1 SQL Database → Create** → name `mediaapi-byok` → open it and copy the **Database ID** (a UUID). Send it to the orchestrator or paste it into `wrangler.jsonc` under `d1_databases[0].database_id`.
+2. **R2 Object Storage → Create bucket** → name `mediaapi-byok-tmp` (any location). If R2 asks you to enable it, do so; the free tier applies.
+3. The master key (`KEK`) is generated automatically by the deploy workflow on the first deploy and stored only as a Worker secret. Nothing to do. If it is ever lost, users simply re-enter their provider keys.
 
 ## 6. GitHub repository
 Settings → Secrets and variables → Actions:
@@ -76,11 +71,13 @@ Settings → Secrets and variables → Actions:
 
 Branch protection on `main`: require the CI check. The deploy workflow runs only on `main`.
 
-## 7. Routing probe (first deploy)
-The first deploy uses routes `www.thewoovee.com/__studio-probe` and `www.thewoovee.com/__studio-probe/*`.
-Open `https://www.thewoovee.com/__studio-probe/api/health`:
-- JSON `{ok:true}` → the Worker route runs in front of Pages. Switch the routes to `/studio` and `/studio/*` and redeploy.
-- Your Pages 404 page → routes do not intercept on this Pages custom domain. Fallback: add `studio.thewoovee.com` as a Worker **Custom Domain** (wrangler creates the DNS record), move Access app A to that hostname, and link to it from the main site. Nothing else in the plan changes.
+## 7. First deploy is the routing probe
+The Worker deploys with routes `www.thewoovee.com/studio` and `www.thewoovee.com/studio/*`. Your Pages site is not modified,
+so this cannot break `www` either way. After the deploy workflow is green, open `https://www.thewoovee.com/studio/api/health`:
+- JSON `{ok:true}` → the Worker route runs in front of Pages. Continue to section 9.
+- Your Pages 404 page → routes do not intercept on this Pages custom domain. Fallback: change `routes` in `wrangler.jsonc` to
+  `[{ "pattern": "studio.thewoovee.com", "custom_domain": true }]`, set `BASE_PATH` in `shared/config.ts` to `""`, move Access app A
+  to hostname `studio.thewoovee.com` (no path), and redeploy. Nothing else in the plan changes.
 
 ## 8. Existing Pages project: nothing to change
 The Pages project keeps deploying from its own repo. The only interaction is the route: requests to `/studio…`

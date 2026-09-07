@@ -31,7 +31,18 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --var ACCESS_TEAM_DOMAIN:${{ vars.ACCESS_TEAM_DOMAIN }} --var ACCESS_AUD:${{ vars.ACCESS_AUD }}
+      - name: Ensure KEK secret exists (generated once on first deploy, never printed)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if npx wrangler secret list 2>/dev/null | grep -Eq '"name": ?"KEK"'; then
+            echo "KEK already set"
+          else
+            openssl rand -base64 32 | npx wrangler secret put KEK
+            echo "KEK generated and stored in Cloudflare (a lost KEK only means users re-enter their provider keys)"
+          fi
 
   preview:
     runs-on: ubuntu-latest

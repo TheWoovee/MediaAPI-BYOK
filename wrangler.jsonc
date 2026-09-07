@@ -9,17 +9,13 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/studio/api/*", "/studio", "/studio/"]
   },
-  // PROBE routes — use these first to test that a Worker route intercepts on the Pages custom domain.
-  // Once confirmed, comment these out and uncomment the /studio routes below.
+  // Worker routes on the existing Pages host. Deploying these IS the routing probe: if
+  // https://www.thewoovee.com/studio/api/health returns JSON the route intercepts in front of Pages;
+  // if it returns the Pages 404 page, switch to a studio.thewoovee.com custom domain (docs/setup-cloudflare.md §7).
   "routes": [
-    { "pattern": "www.thewoovee.com/__studio-probe",  "zone_name": "thewoovee.com" },
-    { "pattern": "www.thewoovee.com/__studio-probe/*", "zone_name": "thewoovee.com" }
+    { "pattern": "www.thewoovee.com/studio",  "zone_name": "thewoovee.com" },
+    { "pattern": "www.thewoovee.com/studio/*", "zone_name": "thewoovee.com" }
   ],
-  // PRODUCTION routes — uncomment after the probe succeeds:
-  // "routes": [
-  //   { "pattern": "www.thewoovee.com/studio",  "zone_name": "thewoovee.com" },
-  //   { "pattern": "www.thewoovee.com/studio/*", "zone_name": "thewoovee.com" }
-  // ],
   "d1_databases": [
     {
       "binding": "DB",
