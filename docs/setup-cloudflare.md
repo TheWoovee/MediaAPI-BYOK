@@ -18,7 +18,9 @@ Assumptions: zone `thewoovee.com` is active on Cloudflare; `www` is a Cloudflare
 
 ## 3. Login: identity providers
 ### One-time PIN (zero setup, do this first)
-Zero Trust → Settings → Authentication → Login methods → **Add new** → **One-time PIN**. Done.
+Zero Trust (Cloudflare One) → **Integrations** → **Identity providers** → **Add new identity provider** → **One-time PIN**.
+Nothing to configure. On many new accounts it is already listed there by default; if so, skip this step.
+(Older dashboards had this under Settings → Authentication → Login methods.)
 
 ### Google (optional, 10 minutes)
 1. https://console.cloud.google.com → create a project (any name) → APIs & Services → **OAuth consent screen** → External → fill app name and your email → add yourself as a test user (or publish; either works for a closed group).
@@ -26,7 +28,7 @@ Zero Trust → Settings → Authentication → Login methods → **Add new** →
    - Authorised JavaScript origins: `https://<team>.cloudflareaccess.com`
    - Authorised redirect URIs: `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`
 3. Copy Client ID and Client Secret.
-4. Zero Trust → Settings → Authentication → Login methods → Add new → **Google** → paste both → Save → **Test**.
+4. Zero Trust → **Integrations** → **Identity providers** → Add new identity provider → **Google** → paste both → Save → **Test**.
 
 Which is easier: **One-time PIN**. No external account, no consent screen, works for every invited email. Google
 saves your friends typing a PIN each day but is otherwise identical in security here. Start with PIN; add Google
